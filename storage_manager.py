@@ -8,32 +8,49 @@ import sqlite3
 import datetime
 from config import DB_PATH, ensure_dirs
 
+_DB_INITIALIZED = False
+
+
+def _initialize_db():
+    """Create tables once for the current process."""
+    global _DB_INITIALIZED
+    if _DB_INITIALIZED:
+        return
+
+    ensure_dirs()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                ended_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+        """)
+        conn.commit()
+        _DB_INITIALIZED = True
+    finally:
+        conn.close()
+
 
 def _get_connection() -> sqlite3.Connection:
-    """Get a database connection, creating tables if needed."""
-    ensure_dirs()
+    """Get a database connection."""
+    _initialize_db()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            ended_at TEXT
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id INTEGER NOT NULL,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-        )
-    """)
-    conn.commit()
     return conn
 
 

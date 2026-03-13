@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QSplitter, QFrame, QMenu, QSizeGrip,
     QApplication,
 )
-from PyQt6.QtCore import Qt, QPoint, pyqtSlot, QSize
+from PyQt6.QtCore import Qt, QPoint, pyqtSlot, QSize, QTimer
 from PyQt6.QtGui import QFont, QAction, QCursor, QColor, QTextCursor
 
 from audio_manager import AudioManager
@@ -20,6 +20,7 @@ from transcriber import Transcriber
 from llm_client import LLMClient
 import context_manager
 import storage_manager
+import screen_reader
 
 
 class OverlayWindow(QMainWindow):
@@ -30,6 +31,8 @@ class OverlayWindow(QMainWindow):
         self._session_id = None
         self._drag_pos = None
         self._last_question = ""
+        self._captured_text = ""      # accumulates across multiple captures
+        self._append_mode = False      # when True, capture appends instead of replacing
 
         # Core components
         self.audio_mgr = AudioManager()
@@ -284,7 +287,7 @@ class OverlayWindow(QMainWindow):
             QPushButton { color: rgba(255,255,255,0.6); background: transparent; border: none; font-size: 12px; }
             QPushButton:hover { color: white; background: rgba(255,80,80,0.6); border-radius: 4px; }
         """)
-        close_btn.clicked.connect(self._on_close)
+        close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn)
 
         return bar
@@ -365,6 +368,36 @@ class OverlayWindow(QMainWindow):
         self.sidebar_btn.setToolTip("Past Chats")
         self.sidebar_btn.clicked.connect(self._toggle_sidebar)
         layout.addWidget(self.sidebar_btn)
+
+        # ── Screen capture controls ──────────────────────────────
+        # Visual separator
+        sep = QLabel("│")
+        sep.setStyleSheet("color: rgba(255,255,255,0.15); font-size: 16px; padding: 0 2px;")
+        layout.addWidget(sep)
+
+        # Capture button
+        self.capture_btn = QPushButton("📷 Capture")
+        self.capture_btn.setStyleSheet(btn_style)
+        self.capture_btn.setToolTip("Capture text from screen (AX API / OCR)")
+        self.capture_btn.clicked.connect(self._capture_screen)
+        layout.addWidget(self.capture_btn)
+
+        # Append mode toggle
+        self.append_btn = QPushButton("➕")
+        self.append_btn.setFixedSize(32, 32)
+        self.append_btn.setCheckable(True)
+        self.append_btn.setStyleSheet(btn_style)
+        self.append_btn.setToolTip("Append mode: each capture adds to question (for scrollable content)")
+        self.append_btn.clicked.connect(self._toggle_append_mode)
+        layout.addWidget(self.append_btn)
+
+        # Clear captured text
+        self.clear_capture_btn = QPushButton("🗑")
+        self.clear_capture_btn.setFixedSize(32, 32)
+        self.clear_capture_btn.setStyleSheet(btn_style)
+        self.clear_capture_btn.setToolTip("Clear captured question text")
+        self.clear_capture_btn.clicked.connect(self._clear_capture)
+        layout.addWidget(self.clear_capture_btn)
 
         return widget
 
@@ -552,12 +585,16 @@ class OverlayWindow(QMainWindow):
         """Start/stop audio capture."""
         if self.audio_mgr.is_capturing:
             self.audio_mgr.stop_capture()
+            # Read actual state after the call
             self.mic_btn.setText("🎤 Start")
             self.pause_btn.setEnabled(False)
         else:
-            self.audio_mgr.start_capture()
-            self.mic_btn.setText("🎤 Stop")
-            self.pause_btn.setEnabled(True)
+            success = self.audio_mgr.start_capture()
+            # Only update UI if capture actually started
+            if success:
+                self.mic_btn.setText("🎤 Stop")
+                self.pause_btn.setEnabled(True)
+            # If failed, status_changed signal already updated the status label
 
     def _toggle_pause(self):
         """Pause/resume audio capture."""
@@ -579,6 +616,98 @@ class OverlayWindow(QMainWindow):
         self.stop_btn.setEnabled(False)
         self.regen_btn.setEnabled(True)
 
+    # ─── Screen Capture ──────────────────────────────────────
+
+    def _capture_screen(self):
+        """
+        Capture text from the screen using AX API or screenshot+OCR.
+        Briefly hides our overlay so it doesn't occlude content.
+        """
+        self.capture_btn.setEnabled(False)
+        self.capture_btn.setText("⏳ Capturing...")
+        self.status_label.setText("Capturing screen...")
+
+        # Hide window briefly to avoid occluding the target window
+        self.hide()
+        QApplication.processEvents()  # Flush the hide before scheduling capture
+        QTimer.singleShot(150, self._finish_capture_screen)
+
+    def _finish_capture_screen(self):
+        """Run screen capture after the overlay has had time to hide."""
+        result = {"text": "", "method": "error", "error": "Capture failed unexpectedly."}
+        try:
+            result = screen_reader.capture_text_from_screen()
+        finally:
+            self.show()
+            self.raise_()
+            self.capture_btn.setEnabled(True)
+            self.capture_btn.setText("📷 Capture")
+
+        text = result.get("text", "").strip()
+        method = result.get("method", "error")
+        error = result.get("error", "")
+
+        if not text:
+            self.status_label.setText(f"⚠ Capture failed: {error or 'No text found'}")
+            return
+
+        # Append or replace
+        if self._append_mode and self._captured_text:
+            self._captured_text += "\n\n--- [next scroll] ---\n\n" + text
+        else:
+            self._captured_text = text
+
+        method_icon = "🔍" if method == "accessibility" else "📸"
+        self.status_label.setText(
+            f"{method_icon} Captured via {method} · {len(self._captured_text)} chars"
+        )
+
+        # Display in question box
+        self.question_display.setPlainText(self._captured_text)
+        self._last_question = self._captured_text
+        self.regen_btn.setEnabled(True)
+
+        # Auto-save to session
+        if self._session_id:
+            storage_manager.add_message(self._session_id, "question", self._captured_text)
+
+        # Auto-trigger LLM response
+        self.response_display.clear()
+        self.llm_client.generate_response(self._captured_text)
+
+    def _toggle_append_mode(self):
+        """Toggle scroll-and-append capture mode."""
+        self._append_mode = self.append_btn.isChecked()
+        if self._append_mode:
+            self.append_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(255, 200, 60, 0.3);
+                    color: #ffd060;
+                    border: 1px solid rgba(255, 200, 60, 0.4);
+                    border-radius: 6px;
+                    font-size: 11px; font-weight: bold;
+                }
+            """)
+            self.status_label.setText("➕ Append mode ON — captures will accumulate")
+        else:
+            self.append_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(255, 255, 255, 0.08);
+                    color: #d0d0d0;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 6px;
+                    font-size: 11px; font-weight: bold;
+                }
+            """)
+            self.status_label.setText("Append mode OFF")
+
+    def _clear_capture(self):
+        """Clear accumulated captured text."""
+        self._captured_text = ""
+        self._last_question = ""
+        self.question_display.clear()
+        self.status_label.setText("🗑 Capture cleared")
+
     def _toggle_sidebar(self):
         """Toggle past chats sidebar visibility."""
         self.sidebar.setVisible(not self.sidebar.isVisible())
@@ -589,10 +718,13 @@ class OverlayWindow(QMainWindow):
         """Upload a resume file."""
         filepath, _ = QFileDialog.getOpenFileName(
             self, "Upload Resume", "",
-            "Documents (*.pdf *.txt *.md *.doc);;All Files (*)",
+            "Resumes (*.pdf *.docx *.txt *.md)",
         )
         if filepath:
             doc = context_manager.add_resume(filepath)
+            if doc.get("type") == "error":
+                QMessageBox.warning(self, "Upload Error", doc.get("error", "Unknown error"))
+                return
             self._update_doc_count()
             self.status_label.setText(f"✅ Loaded resume: {doc['filename']}")
 
@@ -615,10 +747,14 @@ class OverlayWindow(QMainWindow):
 
         if msg.clickedButton() == file_btn:
             filepath, _ = QFileDialog.getOpenFileName(
-                self, "Upload Code File", "", "All Files (*)"
+                self, "Upload Code File", "",
+                "Source Code (*.py *.js *.ts *.jsx *.tsx *.java *.cpp *.c *.h *.go *.rs *.rb *.php *.swift *.kt *.scala *.sol *.css *.html *.sql *.sh *.yml *.yaml *.toml *.md *.txt *.cfg *.ini *.xml)"
             )
             if filepath:
                 doc = context_manager.add_code_file(filepath)
+                if doc.get("type") == "error":
+                    QMessageBox.warning(self, "Upload Error", doc.get("error", "Unknown error"))
+                    return
                 self._update_doc_count()
                 self.status_label.setText(f"✅ Loaded: {doc['filename']}")
 
@@ -626,6 +762,9 @@ class OverlayWindow(QMainWindow):
             folder = QFileDialog.getExistingDirectory(self, "Select Project Folder")
             if folder:
                 doc = context_manager.add_project_folder(folder)
+                if doc.get("type") == "error":
+                    QMessageBox.warning(self, "Upload Error", doc.get("error", "Unknown error"))
+                    return
                 self._update_doc_count()
                 self.status_label.setText(
                     f"✅ Loaded project: {doc['filename']} ({doc['files_count']} files)"
@@ -770,10 +909,18 @@ class OverlayWindow(QMainWindow):
     def mouseReleaseEvent(self, event):
         self._drag_pos = None
 
-    # ─── Close Handling ──────────────────────────────────────
+    def closeEvent(self, event):
+        """Qt close event — catches Cmd+Q, window manager close, etc."""
+        if self._on_close():
+            event.accept()
+        else:
+            event.ignore()
 
-    def _on_close(self):
-        """Handle close with session save prompt."""
+    def _on_close(self) -> bool:
+        """
+        Handle close with session save prompt.
+        Returns True if close should proceed, False if cancelled.
+        """
         if self._session_id:
             reply = QMessageBox.question(
                 self, "Active Session",
@@ -783,7 +930,7 @@ class OverlayWindow(QMainWindow):
             if reply == QMessageBox.StandardButton.Yes:
                 self._end_session()
             elif reply == QMessageBox.StandardButton.Cancel:
-                return
+                return False
 
         # Save window position
         from config import load_config, save_config
@@ -798,4 +945,4 @@ class OverlayWindow(QMainWindow):
 
         # Cleanup
         self.audio_mgr.stop_capture()
-        QApplication.quit()
+        return True

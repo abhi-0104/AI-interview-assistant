@@ -12,31 +12,37 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox
 from PyQt6.QtCore import QTimer
 from overlay_window import OverlayWindow
-from config import load_config, set_api_key, get_api_key, ensure_dirs
+from config import (
+    set_openrouter_api_key,
+    get_openrouter_api_key,
+    ensure_dirs,
+)
 
 
-def check_api_key(app: QApplication) -> bool:
-    """Prompt for Groq API key if not set."""
-    key = get_api_key()
-    if key:
-        return True
+def _prompt_for_key(title: str, prompt: str) -> tuple[str, bool]:
+    return QInputDialog.getText(None, title, prompt)
 
-    key, ok = QInputDialog.getText(
-        None,
-        "Groq API Key Required",
-        "Enter your Groq API key (get one free at console.groq.com):",
-    )
-    if ok and key.strip():
-        set_api_key(key.strip())
+
+def check_api_keys(app: QApplication) -> bool:
+    """Prompt for the OpenRouter API key if missing."""
+    if not get_openrouter_api_key():
+        key, ok = _prompt_for_key(
+            "OpenRouter API Key Required",
+            "Enter your OpenRouter API key (used for answer generation):",
+        )
+        if ok and key.strip():
+            set_openrouter_api_key(key.strip())
+
+    if get_openrouter_api_key():
         return True
 
     QMessageBox.warning(
         None,
-        "No API Key",
-        "The app requires a Groq API key to generate responses.\n"
-        "You can set it later in ~/.interviewagent/config.json",
+        "Missing API Key",
+        "The app needs an OpenRouter API key for answer generation.\n"
+        "You can add it later in .env.",
     )
-    return True  # Still allow app to open
+    return True
 
 
 def main():
@@ -98,8 +104,8 @@ def main():
         }
     """)
 
-    # Check API key
-    check_api_key(app)
+    # Check API keys
+    check_api_keys(app)
 
     # Create and show the overlay window
     window = OverlayWindow()

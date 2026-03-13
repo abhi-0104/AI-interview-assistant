@@ -20,6 +20,14 @@ if ! system_profiler SPAudioDataType 2>/dev/null | grep -qi "BlackHole"; then
     echo ""
 fi
 
+# Check for Tesseract (for OCR)
+if ! command -v tesseract &> /dev/null; then
+    echo "⚠️  Tesseract OCR not detected!"
+    echo "   Screen capture OCR will not work without the tesseract binary."
+    echo "   Install it with: brew install tesseract"
+    echo ""
+fi
+
 # Create venv if needed
 if [ ! -d "venv" ]; then
     echo "📦 Creating virtual environment..."
@@ -39,5 +47,6 @@ echo "🚀 Launching Interview Agent..."
 echo "   Cmd+M = Toggle capture pause"
 echo "   Drag title bar to move"
 echo "   Resize from bottom-right corner"
+echo "   Uses local faster-whisper for transcription and OpenRouter for answers"
 echo ""
 python main.py
