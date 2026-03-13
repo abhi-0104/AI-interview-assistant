@@ -1,16 +1,15 @@
 """
-Groq API client for ultra-fast LLM response generation.
-Streams responses token-by-token using Llama 3.3 70B.
+OpenRouter-backed LLM client for streaming interview responses.
 """
 
 import threading
 from PyQt6.QtCore import QObject, pyqtSignal
-from config import load_config, get_api_key
+from config import load_config, get_openrouter_api_key
 from context_manager import build_context_string
 
 
 class LLMClient(QObject):
-    """Groq-powered LLM client for interview answer generation."""
+    """OpenRouter-powered LLM client for interview answer generation."""
 
     # Emitted for each streamed token
     token_received = pyqtSignal(str)
@@ -31,19 +30,26 @@ class LLMClient(QObject):
         self._current_thread = None
 
     def initialize(self):
-        """Initialize the Groq client."""
-        api_key = get_api_key()
+        """Initialize the OpenRouter client."""
+        api_key = get_openrouter_api_key()
         if not api_key:
-            self.status_changed.emit("⚠ No Groq API key set")
+            self.status_changed.emit("⚠ No OpenRouter API key set")
             return False
 
         try:
-            from groq import Groq
-            self._client = Groq(api_key=api_key)
-            self.status_changed.emit("Groq client ready")
+            from openai import OpenAI
+            self._client = OpenAI(
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1",
+                default_headers={
+                    "HTTP-Referer": "https://localhost/interviewagent",
+                    "X-Title": "InterviewAgent",
+                },
+            )
+            self.status_changed.emit("OpenRouter client ready")
             return True
         except Exception as e:
-            self.status_changed.emit(f"❌ Groq init failed: {str(e)[:50]}")
+            self.status_changed.emit(f"❌ OpenRouter init failed: {str(e)[:50]}")
             return False
 
     def _build_system_prompt(self) -> str:
@@ -103,11 +109,11 @@ CANDIDATE'S BACKGROUND (use this to personalize answers):
                 messages = [
                     {"role": "system", "content": self._build_system_prompt()},
                 ]
-                # Keep last 10 exchanges for context
+                # Keep the last 10 Q+A exchanges (20 messages) for context.
                 messages.extend(self._conversation_history[-20:])
 
                 stream = self._client.chat.completions.create(
-                    model=self.config.get("groq_model", "llama-3.3-70b-versatile"),
+                    model=self.config.get("openrouter_model", "qwen/qwen3-coder:free"),
                     messages=messages,
                     temperature=0.3,
                     max_tokens=2048,
@@ -119,8 +125,8 @@ CANDIDATE'S BACKGROUND (use this to personalize answers):
                         break
 
                     delta = chunk.choices[0].delta
-                    if delta.content:
-                        token = delta.content
+                    token = delta.content or ""
+                    if token:
                         full_response += token
                         self.token_received.emit(token)
 

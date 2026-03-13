@@ -30,8 +30,8 @@ def _save_metadata(metadata: dict):
         json.dump(metadata, f, indent=2)
 
 
-def _extract_text_from_pdf(filepath: str) -> str:
-    """Extract text from a PDF file."""
+def _extract_text_from_pdf(filepath: str) -> tuple[str, str | None]:
+    """Extract text from a PDF file. Returns (text, error) tuple."""
     try:
         from PyPDF2 import PdfReader
         reader = PdfReader(filepath)
@@ -40,9 +40,25 @@ def _extract_text_from_pdf(filepath: str) -> str:
             text = page.extract_text()
             if text:
                 text_parts.append(text)
-        return "\n".join(text_parts)
+        result = "\n".join(text_parts).strip()
+        if not result:
+            return "", "PDF appears empty or contains no extractable text."
+        return result, None
     except Exception as e:
-        return f"[Error reading PDF: {e}]"
+        return "", f"Could not parse PDF: {e}"
+
+
+def _extract_text_from_docx(filepath: str) -> tuple[str, str | None]:
+    """Extract text from a .docx file. Returns (text, error) tuple."""
+    try:
+        import docx
+        doc = docx.Document(filepath)
+        result = "\n".join([p.text for p in doc.paragraphs]).strip()
+        if not result:
+            return "", "DOCX appears empty or contains no extractable text."
+        return result, None
+    except Exception as e:
+        return "", f"Could not parse DOCX: {e}"
 
 
 def _extract_text_from_file(filepath: str) -> str:
@@ -57,28 +73,110 @@ def _extract_text_from_file(filepath: str) -> str:
 CODE_EXTENSIONS = {
     ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".cpp", ".c", ".h",
     ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".scala", ".sol",
-    ".css", ".html", ".sql", ".sh", ".yml", ".yaml", ".json", ".toml",
-    ".md", ".txt", ".env", ".cfg", ".ini", ".xml",
+    ".css", ".html", ".sql", ".sh", ".yml", ".yaml", ".toml",
+    ".md", ".txt", ".cfg", ".ini", ".xml",
 }
+
+RESUME_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
+
+# Files that must never be read or forwarded to the LLM regardless of extension.
+# Matches against the lowercase filename (not extension alone).
+SENSITIVE_FILENAME_PATTERNS = {
+    # Secrets and credentials
+    ".env", ".env.local", ".env.production", ".env.development",
+    "secrets.json", "secrets.yaml", "secrets.yml",
+    "credentials.json", "credentials.yaml",
+    "serviceaccount.json",
+    # Private keys
+    "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
+    ".pem", ".key", ".p12", ".pfx",
+    # Lock files (useless noise in LLM context)
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
+    "pipfile.lock", "gemfile.lock", "cargo.lock",
+    # Common config files that may hold tokens
+    ".netrc", ".npmrc", ".pypirc",
+}
+
+
+def _is_binary(filepath: str) -> bool:
+    """Check if a file is likely binary by looking for NUL bytes."""
+    try:
+        with open(filepath, 'rb') as f:
+            # Check up to 8KB
+            chunk = f.read(8192)
+            return b'\x00' in chunk
+    except Exception:
+        return True
+
+def _is_sensitive_file(filename: str) -> bool:
+    """Return True if the file should be excluded from LLM context."""
+    lower = filename.lower()
+    if lower in SENSITIVE_FILENAME_PATTERNS:
+        return True
+    # Check extension-only patterns
+    _, ext = os.path.splitext(lower)
+    if ext in {".pem", ".key", ".p12", ".pfx", ".env"}:
+        return True
+    # Wildcard-style checks for common secret file naming conventions
+    if (
+        lower.startswith("secrets") or
+        lower.startswith(".env") or
+        "credentials" in lower or
+        "service-account" in lower or
+        "service_account" in lower
+    ):
+        return True
+    return False
 
 
 def add_resume(filepath: str) -> dict:
     """
     Add a resume file (PDF or text) to persistent storage.
-    Returns document info dict.
+    Returns document info dict or error dict.
     """
     ensure_dirs()
     filename = os.path.basename(filepath)
+    lower = filename.lower()
+    _, ext = os.path.splitext(lower)
+    
+    # 1. Strict Extension Allowlist
+    if ext not in RESUME_EXTENSIONS:
+        return {
+            "type": "error",
+            "filename": filename,
+            "error": f"Unsupported resume format: {ext or 'none'}. Use PDF, DOCX, or Text.",
+        }
+
+    # 2. Heuristic Binary Check (for files masquerading as text)
+    if ext != ".pdf" and ext != ".docx" and _is_binary(filepath):
+        return {
+            "type": "error",
+            "filename": filename,
+            "error": "File content appears to be binary (unsupported).",
+        }
+
     dest = os.path.join(DOCUMENTS_DIR, filename)
 
-    # Copy file to persistent storage
-    shutil.copy2(filepath, dest)
-
-    # Extract text
-    if filepath.lower().endswith(".pdf"):
-        text = _extract_text_from_pdf(dest)
+    # Atomic approach: parse from the SOURCE first, only overwrite dest on success.
+    # This guarantees an existing valid resume is never clobbered by a corrupt upload.
+    lower_src = filepath.lower()
+    if lower_src.endswith(".pdf"):
+        text, parse_err = _extract_text_from_pdf(filepath)
+    elif lower_src.endswith(".docx"):
+        text, parse_err = _extract_text_from_docx(filepath)
     else:
-        text = _extract_text_from_file(dest)
+        text = _extract_text_from_file(filepath)
+        parse_err = None
+
+    if parse_err:
+        return {
+            "type": "error",
+            "filename": filename,
+            "error": parse_err,
+        }
+
+    # Only copy after successful parse
+    shutil.copy2(filepath, dest)
 
     doc_info = {
         "type": "resume",
@@ -109,13 +207,16 @@ def add_project_folder(folder_path: str) -> dict:
     folder_name = os.path.basename(folder_path.rstrip("/"))
     dest_folder = os.path.join(DOCUMENTS_DIR, f"project_{folder_name}")
 
-    # Remove old copy if exists
-    if os.path.exists(dest_folder):
-        shutil.rmtree(dest_folder)
+    temp_folder = dest_folder + ".tmp"
 
-    os.makedirs(dest_folder, exist_ok=True)
+    # Build into a temp folder first so a bad re-upload never clobbers
+    # an existing valid stored project.
+    if os.path.exists(temp_folder):
+        shutil.rmtree(temp_folder)
+    os.makedirs(temp_folder, exist_ok=True)
 
     files_copied = 0
+    skipped_sensitive = 0
     for root, dirs, files in os.walk(folder_path):
         # Skip hidden dirs, node_modules, __pycache__, .git, etc.
         dirs[:] = [
@@ -123,11 +224,19 @@ def add_project_folder(folder_path: str) -> dict:
             if not d.startswith(".") and d not in {"node_modules", "__pycache__", "venv", ".venv", "dist", "build"}
         ]
         for fname in files:
+            # Never copy sensitive files
+            if _is_sensitive_file(fname):
+                skipped_sensitive += 1
+                continue
             ext = os.path.splitext(fname)[1].lower()
             if ext in CODE_EXTENSIONS:
                 src = os.path.join(root, fname)
+                # Skip mislabeled binaries (e.g. notes.txt that is actually a binary)
+                if _is_binary(src):
+                    skipped_sensitive += 1
+                    continue
                 rel = os.path.relpath(src, folder_path)
-                dst = os.path.join(dest_folder, rel)
+                dst = os.path.join(temp_folder, rel)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 try:
                     shutil.copy2(src, dst)
@@ -140,7 +249,25 @@ def add_project_folder(folder_path: str) -> dict:
         "filename": folder_name,
         "path": dest_folder,
         "files_count": files_copied,
+        "skipped_sensitive": skipped_sensitive,
     }
+
+    # Reject empty projects — no usable files were found
+    if files_copied == 0:
+        shutil.rmtree(temp_folder, ignore_errors=True)
+        return {
+            "type": "error",
+            "filename": folder_name,
+            "error": (
+                f"No supported source files found in '{folder_name}'. "
+                f"{skipped_sensitive} file(s) were skipped (sensitive/binary/unsupported)."
+            ),
+        }
+
+    # Replace old persisted project only after the new copy succeeded.
+    if os.path.exists(dest_folder):
+        shutil.rmtree(dest_folder)
+    os.replace(temp_folder, dest_folder)
 
     metadata = _load_metadata()
     metadata["documents"] = [
@@ -157,6 +284,33 @@ def add_code_file(filepath: str) -> dict:
     """Add a single code file to persistent storage."""
     ensure_dirs()
     filename = os.path.basename(filepath)
+    lower = filename.lower()
+    _, ext = os.path.splitext(lower)
+
+    # 1. Strict Sensitive Check
+    if _is_sensitive_file(filename):
+        return {
+            "type": "error",
+            "filename": filename,
+            "error": "File excluded: sensitive content (secret/env/config)",
+        }
+    
+    # 2. Strict Extension Check
+    if ext not in CODE_EXTENSIONS:
+        return {
+            "type": "error",
+            "filename": filename,
+            "error": f"Unsupported code format: {ext or 'none'}. Supported: {', '.join(sorted(CODE_EXTENSIONS))}",
+        }
+    
+    # 3. Content Check
+    if _is_binary(filepath):
+        return {
+            "type": "error",
+            "filename": filename,
+            "error": "File content appears to be binary (unsupported).",
+        }
+
     dest = os.path.join(DOCUMENTS_DIR, filename)
     shutil.copy2(filepath, dest)
 
@@ -214,10 +368,16 @@ def build_context_string(max_chars: int = 12000) -> str:
         filename = doc.get("filename", "")
 
         if doc_type == "resume":
-            if path.lower().endswith(".pdf"):
-                text = _extract_text_from_pdf(path)
+            lower_path = path.lower()
+            if lower_path.endswith(".pdf"):
+                text, _err = _extract_text_from_pdf(path)
+            elif lower_path.endswith(".docx"):
+                text, _err = _extract_text_from_docx(path)
             else:
                 text = _extract_text_from_file(path)
+                _err = None
+            if _err or not text:
+                continue  # Skip corrupt/empty files rather than inject error strings
             header = f"=== RESUME: {filename} ===\n"
             section = header + text
 

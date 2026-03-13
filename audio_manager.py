@@ -34,7 +34,7 @@ class AudioManager(QObject):
         self._audio_buffer = []
         self._silence_start = None
         self._has_speech = False
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()  # RLock: reentrant — allows _audio_callback to call _flush_buffer()
         self._device_index = None
         self._device_name = "Unknown"
 
@@ -95,12 +95,11 @@ class AudioManager(QObject):
         if was_capturing:
             self.start_capture()
 
-    def start_capture(self):
-        """Start capturing audio from the selected device."""
+    def start_capture(self) -> bool:
+        """Start capturing audio from the selected device. Returns True on success."""
         if self._is_capturing:
-            return
+            return True
 
-        self._is_capturing = True
         self._is_paused = False
         self._audio_buffer = []
         self._silence_start = None
@@ -116,10 +115,13 @@ class AudioManager(QObject):
                 callback=self._audio_callback,
             )
             self._stream.start()
+            self._is_capturing = True  # Set AFTER successful stream start
             self.status_changed.emit("🎤 Listening...")
+            return True
         except Exception as e:
             self._is_capturing = False
             self.status_changed.emit(f"❌ Audio error: {str(e)[:50]}")
+            return False
 
     def stop_capture(self):
         """Stop audio capture."""
@@ -185,7 +187,11 @@ class AudioManager(QObject):
                         self._flush_buffer()
 
     def _flush_buffer(self):
-        """Send accumulated audio buffer for transcription."""
+        """Send accumulated audio buffer for transcription.
+        
+        Safe to call from within _audio_callback (which already holds self._lock)
+        because self._lock is an RLock (reentrant).
+        """
         with self._lock:
             if self._audio_buffer and self._has_speech:
                 full_audio = np.concatenate(self._audio_buffer)
