@@ -62,8 +62,11 @@ class Transcriber(QObject):
 
         def _do_transcribe():
             try:
+                # Acquire lock only for the model call, not the lazy generator iteration.
+                # faster-whisper returns a generator; consuming it outside the lock
+                # means long audio won't block other transcription requests.
                 with self._model_lock:
-                    segments, info = self._model.transcribe(
+                    segments_gen, _info = self._model.transcribe(
                         audio,
                         beam_size=3,
                         language="en",
@@ -73,25 +76,23 @@ class Transcriber(QObject):
                             speech_pad_ms=200,
                         ),
                     )
+                    # Eagerly materialise segments while still holding the lock so the
+                    # model object is accessed single-threaded (some GGML backends are
+                    # not thread-safe at the C level even after the Python call).
+                    segments = list(segments_gen)
 
-                    text_parts = []
-                    for segment in segments:
-                        text = segment.text.strip()
-                        if text:
-                            text_parts.append(text)
+                text_parts = [seg.text.strip() for seg in segments if seg.text.strip()]
+                full_text = " ".join(text_parts).strip()
 
-                    full_text = " ".join(text_parts).strip()
-
-                    if full_text and len(full_text) > 3:
-                        # Filter out common Whisper hallucinations
-                        hallucinations = {
-                            "thank you", "thanks for watching",
-                            "subscribe", "like and subscribe",
-                            "thank you for watching", "you",
-                            "the end", "bye",
-                        }
-                        if full_text.lower() not in hallucinations:
-                            self.transcription_ready.emit(full_text)
+                if full_text and len(full_text) > 3:
+                    hallucinations = {
+                        "thank you", "thanks for watching",
+                        "subscribe", "like and subscribe",
+                        "thank you for watching", "you",
+                        "the end", "bye",
+                    }
+                    if full_text.lower() not in hallucinations:
+                        self.transcription_ready.emit(full_text)
 
             except Exception as e:
                 self.status_changed.emit(f"❌ Transcription error: {str(e)[:50]}")
