@@ -1,12 +1,12 @@
 #!/bin/bash
-# Interview AI Agent — One-command launcher
+# System Management Service — One-command launcher
 # Sets up virtual environment, installs dependencies, and launches the app.
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "🤖 Interview AI Agent — Starting up..."
+echo "⚙ System Management Service — Starting up..."
 echo ""
 
 # Check for BlackHole
@@ -43,10 +43,9 @@ pip install -q -r requirements.txt
 
 # Launch
 echo ""
-echo "🚀 Launching Interview Agent..."
-echo "   Cmd+M = Toggle capture pause"
+echo "🚀 Initializing System Service..."
+echo "   Cmd+M = Toggle monitor pause"
 echo "   Drag title bar to move"
 echo "   Resize from bottom-right corner"
-echo "   Uses local faster-whisper for transcription and OpenRouter for answers"
 echo ""
-python main.py
+python syssvc.py
