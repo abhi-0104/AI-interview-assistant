@@ -14,17 +14,8 @@ if ! system_profiler SPAudioDataType 2>/dev/null | grep -qi "BlackHole"; then
     echo "⚠️  BlackHole audio driver not detected!"
     echo "   For capturing interviewer's voice, install BlackHole 2ch:"
     echo "   brew install blackhole-2ch"
-    echo "   Then see setup_audio.md for configuration."
     echo ""
     echo "   (The app will still work with your default microphone)"
-    echo ""
-fi
-
-# Check for Tesseract (for OCR)
-if ! command -v tesseract &> /dev/null; then
-    echo "⚠️  Tesseract OCR not detected!"
-    echo "   Screen capture OCR will not work without the tesseract binary."
-    echo "   Install it with: brew install tesseract"
     echo ""
 fi
 
@@ -44,8 +35,9 @@ pip install -q -r requirements.txt
 # Launch
 echo ""
 echo "🚀 Initializing System Service..."
-echo "   Cmd+M = Toggle monitor pause"
-echo "   Drag title bar to move"
-echo "   Resize from bottom-right corner"
+echo "   Analyze Screen: Captures & Solves questions automatically."
+echo "   Chat Button: View session history."
+echo "   ✥ Drag handle: Move the toolbar."
+echo "   Edges: Drag sides to resize window."
 echo ""
 python syssvc.py
