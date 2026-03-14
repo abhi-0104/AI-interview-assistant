@@ -1,8 +1,10 @@
 """
 OpenRouter-backed LLM client for streaming interview responses.
+Enhanced with detailed logging to track signal flow and API responses.
 """
 
 import threading
+import json
 from PyQt6.QtCore import QObject, pyqtSignal
 from config import load_config, get_openrouter_api_key
 from context_manager import build_context_string
@@ -11,13 +13,9 @@ from context_manager import build_context_string
 class LLMClient(QObject):
     """OpenRouter-powered LLM client for interview answer generation."""
 
-    # Emitted for each streamed token
     token_received = pyqtSignal(str)
-    # Emitted when full response is complete
     response_complete = pyqtSignal(str)
-    # Emitted when generation starts
     generation_started = pyqtSignal()
-    # Status updates
     status_changed = pyqtSignal(str)
 
     def __init__(self):
@@ -31,8 +29,10 @@ class LLMClient(QObject):
 
     def initialize(self):
         """Initialize the OpenRouter client."""
+        print("[LLM] Initializing Client...")
         api_key = get_openrouter_api_key()
         if not api_key:
+            print("[LLM] Error: No API Key found.")
             self.status_changed.emit("⚠ No OpenRouter API key set")
             return False
 
@@ -43,12 +43,14 @@ class LLMClient(QObject):
                 base_url="https://openrouter.ai/api/v1",
                 default_headers={
                     "HTTP-Referer": "https://localhost/interviewagent",
-                    "X-Title": "InterviewAgent",
+                    "X-Title": "Parakeet AI Help",
                 },
             )
+            print("[LLM] OpenRouter client ready.")
             self.status_changed.emit("OpenRouter client ready")
             return True
         except Exception as e:
+            print(f"[LLM] Init Failed: {e}")
             self.status_changed.emit(f"❌ OpenRouter init failed: {str(e)[:50]}")
             return False
 
@@ -57,25 +59,30 @@ class LLMClient(QObject):
         context = build_context_string(
             max_chars=self.config.get("max_context_tokens", 4000) * 3
         )
+        mode = self.config.get("app_mode", "interview")
 
-        base_prompt = """You are an expert interview assistant. Your role is to help answer interview questions accurately, concisely, and professionally.
+        base_prompt = """You are a professional system assistant. Your role is to help answer technical and logic-based questions accurately and concisely.
 
 RULES:
-- Give direct, confident answers as if YOU are the candidate
-- Keep answers concise but thorough (2-4 paragraphs max unless the question demands more)
-- Use first person ("I have experience with...", "In my project...")
-- For coding questions, provide clean, correct code with brief explanations
-- For behavioral questions, use the STAR method (Situation, Task, Action, Result)
-- Reference the candidate's actual resume and projects when relevant
-- Never say "I don't know" — give the best possible answer
-- Do NOT mention that you are an AI or assistant
-- Format responses clearly with bullet points or numbered lists when appropriate"""
+- Handle all inputs with high precision.
+- For technical questions, provide clear, optimized code or detailed logic.
+- Do NOT mention that you are an AI.
+- Format responses clearly."""
+
+        if mode == "assessment":
+            base_prompt += """
+- MODE: Assessment.
+- STRICTION: If the input appears to be a Multiple Choice Question (MCQ), respond **ONLY** with the text or letter of the correct option. Do not explain unless specifically asked in the same input.
+- Keep all other answers extremely brief and focused on the solution."""
+        else:
+            base_prompt += """
+- MODE: Standard.
+- Give direct, confident answers.
+- For behavioral or logic questions, use the STAR methodology if applicable.
+- Reference internal documentation/background when relevant."""
 
         if context:
-            base_prompt += f"""
-
-CANDIDATE'S BACKGROUND (use this to personalize answers):
-{context}"""
+            base_prompt += f"\n\nCANDIDATE'S BACKGROUND:\n{context}"
 
         return base_prompt
 
@@ -84,11 +91,14 @@ CANDIDATE'S BACKGROUND (use this to personalize answers):
         Generate a response to the interview question.
         Streams tokens via signals. Runs in background thread.
         """
+        print(f"\n[LLM] New Question Received: {question[:100]}...")
+        
         if self._client is None:
             if not self.initialize():
                 return
 
         if self._is_generating:
+            print("[LLM] Already generating. Stopping previous request.")
             self.stop_generation()
 
         self._is_generating = True
@@ -103,34 +113,48 @@ CANDIDATE'S BACKGROUND (use this to personalize answers):
         def _do_generate():
             full_response = ""
             try:
+                print("[LLM] Starting background thread generation...")
                 self.generation_started.emit()
                 self.status_changed.emit("🧠 Generating...")
 
-                messages = [
-                    {"role": "system", "content": self._build_system_prompt()},
-                ]
-                # Keep the last 10 Q+A exchanges (20 messages) for context.
+                system_prompt = self._build_system_prompt()
+                messages = [{"role": "system", "content": system_prompt}]
                 messages.extend(self._conversation_history[-20:])
 
+                model = self.config.get("openrouter_model", "qwen/qwen3-coder:free")
+                print(f"[LLM] Model: {model}")
+                print(f"[LLM] Context messages: {len(messages)}")
+
                 stream = self._client.chat.completions.create(
-                    model=self.config.get("openrouter_model", "qwen/qwen3-coder:free"),
+                    model=model,
                     messages=messages,
                     temperature=0.3,
                     max_tokens=2048,
                     stream=True,
                 )
 
+                print("[LLM] Stream opened, waiting for tokens...")
+                token_count = 0
                 for chunk in stream:
                     if self._should_stop:
+                        print("[LLM] Stop requested by user.")
                         break
 
-                    delta = chunk.choices[0].delta
-                    token = delta.content or ""
-                    if token:
-                        full_response += token
-                        self.token_received.emit(token)
+                    try:
+                        delta = chunk.choices[0].delta
+                        token = delta.content or ""
+                        if token:
+                            full_response += token
+                            self.token_received.emit(token)
+                            token_count += 1
+                            if token_count == 1:
+                                print(f"[LLM] First token received: {repr(token)}")
+                    except Exception as chunk_err:
+                        print(f"[LLM] Chunk Error: {chunk_err}")
+                        continue
 
-                # Add response to conversation history
+                print(f"[LLM] Stream finished. Total tokens: {token_count}")
+
                 if full_response:
                     self._conversation_history.append({
                         "role": "assistant",
@@ -139,29 +163,32 @@ CANDIDATE'S BACKGROUND (use this to personalize answers):
 
                 self.response_complete.emit(full_response)
                 self.status_changed.emit("✅ Done")
+                print("[LLM] Final response logged to history.")
 
             except Exception as e:
+                import traceback
                 error_msg = str(e)
-                self.status_changed.emit(f"❌ LLM error: {error_msg[:50]}")
+                print(f"[LLM] Critical Generation Error: {error_msg}")
+                traceback.print_exc()
+                self.status_changed.emit(f"❌ LLM error: {error_msg[:30]}")
                 self.response_complete.emit(f"[Error: {error_msg}]")
             finally:
                 self._is_generating = False
+                print("[LLM] Thread cleanup complete.\n")
 
-        self._current_thread = threading.Thread(target=_do_generate, daemon=True)
-        self._current_thread.start()
+        self.thread = threading.Thread(target=_do_generate, daemon=True)
+        self.thread.start()
 
     def stop_generation(self):
-        """Stop the current generation."""
         self._should_stop = True
         self._is_generating = False
-        self.status_changed.emit("⏹ Generation stopped")
+        print("[LLM] Stop command sent.")
 
     def clear_history(self):
-        """Clear conversation history for a new session."""
+        print("[LLM] History cleared.")
         self._conversation_history = []
 
     def get_conversation_history(self) -> list:
-        """Get the current conversation history."""
         return list(self._conversation_history)
 
     @property
