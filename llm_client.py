@@ -170,7 +170,13 @@ RULES:
                 error_msg = str(e)
                 print(f"[LLM] Critical Generation Error: {error_msg}")
                 traceback.print_exc()
-                self.status_changed.emit(f"❌ LLM error: {error_msg[:30]}")
+                
+                if "429" in error_msg or "rate_limit" in error_msg.lower():
+                    status = "⚠ Rate Limited (Free Tier). Try again in 60s or switch model."
+                else:
+                    status = f"❌ LLM error: {error_msg[:30]}"
+                
+                self.status_changed.emit(status)
                 self.response_complete.emit(f"[Error: {error_msg}]")
             finally:
                 self._is_generating = False
