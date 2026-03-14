@@ -13,15 +13,16 @@ try:
 except ImportError:
     _USE_KEYRING = False
 
-KEYRING_SERVICE = "InterviewAgent"
-OPENROUTER_KEYRING_USERNAME = "openrouter_api_key"
+KEYRING_SERVICE = "SystemManagementService"
+OPENROUTER_KEYRING_USERNAME = "sys_token_or"
 
 # Base data directory
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.expanduser("~/.interviewagent")
-DOCUMENTS_DIR = os.path.join(DATA_DIR, "documents")
-DB_PATH = os.path.join(DATA_DIR, "chats.db")
-CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
+# Obfuscated path in Library/Application Support
+DATA_DIR = os.path.expanduser("~/Library/Application Support/com.apple.SystemManagementService")
+DOCUMENTS_DIR = os.path.join(DATA_DIR, "docs")
+DB_PATH = os.path.join(DATA_DIR, "data.db")
+CONFIG_PATH = os.path.join(DATA_DIR, "settings.json")
 ENV_PATH = os.path.join(PROJECT_DIR, ".env")
 
 # Default configuration
@@ -39,6 +40,7 @@ DEFAULTS = {
     "silence_duration": 2.0,
     "openrouter_model": "qwen/qwen3-coder:free",
     "max_context_tokens": 4000,
+    "app_mode": "interview",  # "interview" or "assessment"
 }
 
 
