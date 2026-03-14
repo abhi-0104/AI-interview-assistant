@@ -1,16 +1,13 @@
 """
-Stealth screen reader for capturing coding questions from the screen.
-
-Two-tier strategy:
-  1. macOS Accessibility API (AX) — reads text directly from UI elements.
-     Zero pixels captured, invisible to proctoring and screen recording.
-  2. Screenshot + local OCR (pytesseract) — fallback for apps that block AX.
-     Captures only the frontmost window, excludes our overlay.
+Stealth content extractor for capturing coding questions from the screen.
+Support Accessibility API (Zero-Pixel) and Native macOS Vision OCR (Zero-Dependency).
+Enhanced with detailed logging and sorting logic for accuracy.
 """
 
 import time
 import os
 import re
+import tempfile
 from typing import Optional, Tuple
 
 CONTENT_ROLES = {
@@ -19,24 +16,23 @@ CONTENT_ROLES = {
 }
 
 
-# ─── Tier 1: Accessibility API ───────────────────────────────────────────────
+# ─── Tier 1: Accessibility API (Zero-Pixel) ──────────────────────────────────
 
 def _ax_get_frontmost_pid() -> Optional[int]:
     """Get the PID of the frontmost (focused) application."""
     try:
         from AppKit import NSWorkspace
         app = NSWorkspace.sharedWorkspace().frontmostApplication()
-        return app.processIdentifier() if app else None
-    except Exception:
+        pid = app.processIdentifier() if app else None
+        print(f"[AX] Frontmost App: {app.localizedName() if app else 'None'} (PID: {pid})")
+        return pid
+    except Exception as e:
+        print(f"[AX] Error getting PID: {e}")
         return None
 
 
 def _ax_walk_element(element, texts: list, depth: int = 0, max_depth: int = 30):
-    """
-    Recursively walk the AX element tree and collect text from content roles.
-    Only reads from semantic text elements (static text, text areas, web content)
-    to avoid collecting incidental UI labels like button names or toolbar titles.
-    """
+    """Recursively walk the AX tree."""
     if depth > max_depth:
         return
 
@@ -48,11 +44,9 @@ def _ax_walk_element(element, texts: list, depth: int = 0, max_depth: int = 30):
             kAXRoleAttribute,
         )
 
-        # Get the role of this element
         err_r, role = AXUIElementCopyAttributeValue(element, kAXRoleAttribute, None)
         role_str = role if (err_r == 0 and isinstance(role, str)) else ""
 
-        # Only collect value from content-bearing roles
         if role_str in CONTENT_ROLES:
             err, value = AXUIElementCopyAttributeValue(element, kAXValueAttribute, None)
             if err == 0 and isinstance(value, str) and value.strip():
@@ -60,21 +54,17 @@ def _ax_walk_element(element, texts: list, depth: int = 0, max_depth: int = 30):
                 if stripped not in texts:
                     texts.append(stripped)
 
-        # Always recurse into children (containers like AXGroup, AXScrollArea)
         err, children = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute, None)
         if err == 0 and children:
             for child in children:
                 _ax_walk_element(child, texts, depth + 1, max_depth)
-
     except Exception:
         pass
 
 
 def _read_via_ax(pid: int) -> Optional[str]:
-    """
-    Extract all text from the frontmost window of the given PID using AX.
-    Returns concatenated text or None if AX is unavailable/blocked.
-    """
+    """Extract text via Accessibility API."""
+    print(f"[AX] Attempting extraction for PID {pid}...")
     try:
         from ApplicationServices import (
             AXUIElementCreateApplication,
@@ -84,16 +74,11 @@ def _read_via_ax(pid: int) -> Optional[str]:
         )
 
         app_elem = AXUIElementCreateApplication(pid)
-
-        # Try the focused window first, then fall back to first window
-        err, window = AXUIElementCopyAttributeValue(
-            app_elem, kAXFocusedWindowAttribute, None
-        )
+        err, window = AXUIElementCopyAttributeValue(app_elem, kAXFocusedWindowAttribute, None)
         if err != 0 or window is None:
-            err, windows = AXUIElementCopyAttributeValue(
-                app_elem, kAXWindowsAttribute, None
-            )
+            err, windows = AXUIElementCopyAttributeValue(app_elem, kAXWindowsAttribute, None)
             if err != 0 or not windows:
+                print("[AX] No windows found for app.")
                 return None
             window = windows[0]
 
@@ -101,9 +86,9 @@ def _read_via_ax(pid: int) -> Optional[str]:
         _ax_walk_element(window, texts)
 
         if not texts:
+            print("[AX] No content roles found in window tree.")
             return None
 
-        # Deduplicate adjacent duplicates while preserving order
         seen = set()
         unique = []
         for t in texts:
@@ -111,151 +96,115 @@ def _read_via_ax(pid: int) -> Optional[str]:
                 seen.add(t)
                 unique.append(t)
 
+        print(f"[AX] Successfully extracted {len(unique)} text segments.")
         return "\n".join(unique)
-
-    except ImportError:
-        return None
-    except Exception:
-        return None
-
-
-# ─── Tier 2: Screenshot + OCR ────────────────────────────────────────────────
-
-def _screenshot_frontmost_window() -> Optional["PIL.Image.Image"]:
-    """
-    Capture the contents of the frontmost window using Quartz.
-    Our overlay (NSWindowSharingNone) is excluded automatically.
-    Returns a PIL Image or None.
-    """
-    try:
-        import Quartz
-        from PIL import Image
-        import io
-
-        # Get the frontmost window's windowID
-        window_list = Quartz.CGWindowListCopyWindowInfo(
-            Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
-            Quartz.kCGNullWindowID,
-        )
-
-        if not window_list:
-            return None
-
-        # Skip our own app — find the frontmost non-InterviewAgent window
-        target_window = None
-        for win in window_list:
-            owner = win.get("kCGWindowOwnerName", "")
-            layer = win.get("kCGWindowLayer", 999)
-            # Layer 0 = normal app windows; skip menu bar (layer < 0 on some systems)
-            if owner != "InterviewAgent" and layer == 0:
-                target_window = win
-                break
-
-        if target_window is None:
-            return None
-
-        window_id = target_window.get("kCGWindowNumber")
-
-        # Capture that specific window
-        image_ref = Quartz.CGWindowListCreateImage(
-            Quartz.CGRectNull,  # capture only the window bounds
-            Quartz.kCGWindowListOptionIncludingWindow,
-            window_id,
-            Quartz.kCGWindowImageBestResolution,
-        )
-
-        if image_ref is None:
-            return None
-
-        # Convert CGImage → PIL Image
-        width = Quartz.CGImageGetWidth(image_ref)
-        height = Quartz.CGImageGetHeight(image_ref)
-        bpr = Quartz.CGImageGetBytesPerRow(image_ref)
-        data_provider = Quartz.CGImageGetDataProvider(image_ref)
-        raw_data = Quartz.CGDataProviderCopyData(data_provider)
-
-        pil_img = Image.frombytes("RGBA", (width, height), bytes(raw_data), "raw", "BGRA")
-        return pil_img.convert("RGB")
-
-    except ImportError:
-        return None
-    except Exception:
-        return None
-
-
-def _ocr_image(image: "PIL.Image.Image") -> Tuple[Optional[str], Optional[str]]:
-    """
-    Run pytesseract OCR on a PIL image. Returns (text, error) tuple.
-    """
-    try:
-        import pytesseract
-
-        # Check if tesseract is installed
-        try:
-            pytesseract.get_tesseract_version()
-        except pytesseract.TesseractNotFoundError:
-            return None, "Tesseract executable not found. Please install it."
-
-        # Boost contrast slightly for better OCR on dark-background coding IDEs
-        from PIL import ImageEnhance
-        image = ImageEnhance.Contrast(image).enhance(1.4)
-        text = pytesseract.image_to_string(image, config="--psm 6")
-
-        stripped_text = text.strip() if text else ""
-
-        # Pytesseract can return empty strings or just whitespace.
-        # It can also return error messages as strings. A simple heuristic:
-        # if the text is short and contains 'error', it's probably not valid.
-        if not stripped_text:
-            return None, "OCR produced no text."
-
-        if "error" in stripped_text.lower() and len(stripped_text) < 150:
-            return None, f"OCR returned a potential error: {stripped_text}"
-
-        return stripped_text, None
-
-    except ImportError:
-        return None, "Pytesseract library not installed. Please run 'pip install pytesseract'."
     except Exception as e:
-        # Catch other potential errors from pytesseract/PIL
-        return None, f"OCR process failed: {str(e)}"
+        print(f"[AX] Critical Error: {e}")
+        return None
 
 
-# ─── Public API ──────────────────────────────────────────────────────────────
+# ─── Tier 2: Native macOS Vision OCR (Zero-Dependency) ───────────────────────
 
-def capture_text_from_screen() -> dict:
-    """
-    Capture question text from the current screen.
-
-    Returns:
-        {
-            "text": str,          # extracted text
-            "method": str,        # "accessibility" | "ocr" | "error"
-            "error": str | None,  # error message if applicable
-        }
-    """
-    # Tier 1: AX API
+def capture_text_from_screen(exclude_id: Optional[int] = None, ax_only: bool = False) -> dict:
+    """Main extraction entry point. Supports Zero-Pixel AX and Native Vision OCR."""
+    print("\n" + "="*40)
+    print(f"[Capture] New Request (ExcludeID: {exclude_id}, AX-Only: {ax_only})")
+    
     pid = _ax_get_frontmost_pid()
     if pid is not None:
         ax_text = _read_via_ax(pid)
-        # Accept any non-empty string from the AX tree.
-        # _ax_walk_element now only collects semantic content roles (text areas,
-        # static text, web areas), so incidental button labels are already excluded.
         if ax_text and ax_text.strip():
             cleaned = re.sub(r"\n{3,}", "\n\n", ax_text)
+            print("[Capture] Success via AX.")
             return {"text": cleaned.strip(), "method": "accessibility", "error": None}
 
-    # Tier 2: Screenshot + OCR
-    image = _screenshot_frontmost_window()
-    if image is not None:
-        text, err = _ocr_image(image)
-        if err:
-            return {"text": "", "method": "ocr", "error": err}
-        if text:
-            return {"text": text, "method": "ocr", "error": None}
+    if ax_only:
+        print("[Capture] AX failed, AX-Only mode active. Returning empty.")
+        return {"text": "", "method": "accessibility", "error": "No content found via AX (AX-Only mode)"}
 
-    return {
-        "text": "",
-        "method": "error",
-        "error": "Could not capture screen content. Grant Accessibility permissions if needed.",
-    }
+    print("[Capture] Falling back to Vision OCR...")
+    return _read_via_vision(exclude_id)
+
+
+def _read_via_vision(exclude_id: Optional[int] = None) -> dict:
+    """Capture screen content and run native macOS Vision OCR."""
+    print("[Vision] Initiating Native OCR...")
+    try:
+        from Quartz import (
+            CGRectInfinite,
+            CGWindowListCreateImage,
+            kCGWindowListOptionOnScreenOnly,
+            kCGWindowListExcludeDesktopElements,
+            kCGWindowImageDefault,
+        )
+        import objc
+        
+        # Load Vision framework
+        objc.loadBundle("Vision", bundle_path="/System/Library/Frameworks/Vision.framework", module_globals=globals())
+        from Vision import VNImageRequestHandler, VNRecognizeTextRequest
+
+        # 1. Capture screen image
+        print("[Vision] Capturing Screen Image...")
+        options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements
+        image_ref = CGWindowListCreateImage(
+            CGRectInfinite,
+            options,
+            exclude_id or 0,
+            kCGWindowImageDefault
+        )
+
+        if not image_ref:
+            print("[Vision] Error: Screen capture returned Null.")
+            return {"text": "", "method": "error", "error": "macOS failed to capture screen image."}
+
+        # 2. Setup Vision Request
+        # Store observations with their bounding boxes to sort them correctly
+        observations_data = []
+
+        def completion_handler(request, error):
+            if error:
+                print(f"[Vision] Request error: {error}")
+                return
+            
+            results = request.results()
+            print(f"[Vision] Found {len(results)} text blocks.")
+            for observation in results:
+                candidates = observation.topCandidates_(1)
+                if candidates:
+                    # Vision coordinates: 0,0 is bottom-left. 
+                    # We want to sort primarily by Y (top to bottom) then X (left to right).
+                    bbox = observation.boundingBox()
+                    text = candidates[0].string()
+                    observations_data.append({
+                        "text": text,
+                        "y": bbox.origin.y, # Higher Y is towards the top
+                        "x": bbox.origin.x
+                    })
+
+        request = VNRecognizeTextRequest.alloc().initWithCompletionHandler_(completion_handler)
+        request.setRecognitionLevel_(0)  # 0 = Accurate, 1 = Fast
+        request.setUsesLanguageCorrection_(True)
+
+        # 3. Perform Request
+        handler = VNImageRequestHandler.alloc().initWithCGImage_options_(image_ref, None)
+        print("[Vision] Running analysis...")
+        success, error = handler.performRequests_error_([request], None)
+
+        if not success:
+            print(f"[Vision] Analysis failed: {error}")
+            return {"text": "", "method": "vision", "error": f"Vision analysis failed: {error}"}
+
+        # 4. Sort observations: 
+        # Sort by Y descending (top to bottom), then X ascending (left to right)
+        observations_data.sort(key=lambda d: (-d["y"], d["x"]))
+        
+        recognized_text = [d["text"] for d in observations_data]
+        text = "\n".join(recognized_text)
+        
+        print(f"[Vision] Total characters extracted: {len(text)}")
+        print("="*40 + "\n")
+        return {"text": text.strip(), "method": "vision", "error": None}
+
+    except Exception as e:
+        print(f"[Vision] Crash: {e}")
+        return {"text": "", "method": "error", "error": f"Vision Error: {str(e)}"}
