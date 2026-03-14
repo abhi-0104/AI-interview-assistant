@@ -1,7 +1,7 @@
 """
 Main overlay window. 
 Frameless, floating, semi-transparent, screen-capture resistant.
-Final version with all requested features and enhanced logging for debugging.
+Final version with Modern Chat UI, interactive prompt, and context-aware flow.
 """
 
 import sys
@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTextEdit, QLabel, QSlider, QFileDialog, QInputDialog, QMessageBox,
     QListWidget, QListWidgetItem, QSplitter, QFrame, QMenu, QSizeGrip,
-    QApplication, QGraphicsDropShadowEffect
+    QApplication, QGraphicsDropShadowEffect, QTextBrowser, QLineEdit
 )
 from PyQt6.QtCore import Qt, QPoint, pyqtSlot, QSize, QTimer, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QFont, QAction, QCursor, QColor, QTextCursor, QIcon
@@ -28,7 +28,7 @@ from config import load_config, save_config
 
 
 class OverlayWindow(QMainWindow):
-    """The main stealth overlay widget - Integrated Build with Debug Logging."""
+    """The main stealth overlay widget - Modern Chat UI Build."""
 
     def __init__(self):
         super().__init__()
@@ -36,17 +36,16 @@ class OverlayWindow(QMainWindow):
         self._drag_pos = None
         self._resize_edge = None
         self._is_resizing = False
-        self._last_question = ""
-        self._captured_text = ""
         self._last_hash = ""
         self._ns_window = None
         self._is_expanded = False
         self._start_time = None
+        self._chat_html = "" # Store chat history for HTML rendering
 
         self.config = load_config()
         self.mode = self.config.get("app_mode", "interview")
 
-        print(f"[UI] Initializing OverlayWindow (Mode: {self.mode})")
+        print(f"[UI] Initializing Chat-Enabled Overlay (Mode: {self.mode})")
 
         # Core components
         self.audio_mgr = AudioManager()
@@ -62,7 +61,7 @@ class OverlayWindow(QMainWindow):
         self.auto_timer = QTimer(self)
         self.auto_timer.timeout.connect(self._run_passive_check)
 
-        # Level enforcer: Level 1000
+        # Level enforcer
         self._level_timer = QTimer(self)
         self._level_timer.timeout.connect(self._enforce_level)
         self._level_timer.start(1000)
@@ -72,18 +71,14 @@ class OverlayWindow(QMainWindow):
         self.clock_timer.timeout.connect(self._update_clock)
 
         if self.mode == "interview":
-            print("[UI] Loading Transcriber model...")
             self.transcriber.load_model()
         else:
-            print("[UI] Starting Passive Check timer...")
             self.auto_timer.start(3000)
 
         self.llm_client.initialize()
         self._new_session()
-        print("[UI] Initialization Complete.")
 
     def _setup_window(self):
-        """Configure the window geometry and stealth."""
         self.setWindowTitle("System Service")
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
@@ -93,7 +88,7 @@ class OverlayWindow(QMainWindow):
 
         self.toolbar_width = self.config.get("window_width", 750)
         self.toolbar_height = 48
-        self.expanded_height = self.config.get("window_height", 500)
+        self.expanded_height = self.config.get("window_height", 550)
 
         self.setGeometry(
             self.config.get("window_x", 100),
@@ -144,11 +139,9 @@ class OverlayWindow(QMainWindow):
         self.raise_()
         self._enforce_level()
         if text:
-            print(f"[UI] Capture success ({method}): {len(text)} chars.")
-            self._on_context_change(text)
+            self._on_context_change(text, is_capture=True)
             self.status_label.setText(f"🎯 Captured via {method}")
         else:
-            print(f"[UI] Capture failed: {error}")
             msg = f"⚠ {error}" if error else "⚠ Capture failed"
             self.status_label.setText(msg)
 
@@ -181,7 +174,6 @@ class OverlayWindow(QMainWindow):
         return None
 
     def apply_stealth(self):
-        """Apply absolute macOS stealth settings."""
         print("[UI] Applying Native Stealth Settings...")
         try:
             from Cocoa import (
@@ -190,43 +182,29 @@ class OverlayWindow(QMainWindow):
                 NSWindowCollectionBehaviorFullScreenAuxiliary,
                 NSWindowCollectionBehaviorIgnoresCycle,
             )
-
             ns_window = self._find_ns_window()
-
             if ns_window:
-                # 1. Hide from Screen Capture
                 ns_window.setSharingType_(0)
                 if hasattr(ns_window, 'setExcludedFromCapture_'):
                     ns_window.setExcludedFromCapture_(True)
-
-                # 2. Set Level 1000 (kCGScreenSaverWindowLevel)
                 ns_window.setLevel_(1000)
-                ns_window.orderFrontRegardless()
-
-                # 3. Collection Behavior (Join all spaces, Ignore cycle, etc.)
                 ns_window.setCollectionBehavior_(
-                    NSWindowCollectionBehaviorCanJoinAllSpaces
-                    | NSWindowCollectionBehaviorStationary
-                    | NSWindowCollectionBehaviorFullScreenAuxiliary
-                    | NSWindowCollectionBehaviorIgnoresCycle
+                    NSWindowCollectionBehaviorCanJoinAllSpaces |
+                    NSWindowCollectionBehaviorStationary |
+                    NSWindowCollectionBehaviorFullScreenAuxiliary |
+                    NSWindowCollectionBehaviorIgnoresCycle
                 )
                 self.status_label.setText("🛡 Stealth Active")
-                print("[UI] Stealth Applied successfully.")
-            else:
-                print("[UI] Error: Native window hook failed for stealth.")
-                self.status_label.setText("⚠ Native Hook Failed")
-
-        except Exception as e:
-            print(f"[UI] Stealth Exception: {e}")
-            self.status_label.setText(f"⚠ Stealth Error")
+        except Exception: pass
 
     def _build_ui(self):
+        """Build the new Chat UI with a scrolling area and prompt box."""
         self.main_container = QWidget()
         self.main_container.setObjectName("mainContainer")
         self.main_container.setStyleSheet("""
             #mainContainer {
                 background-color: rgba(20, 20, 25, 235);
-                border-radius: 10px;
+                border-radius: 12px;
                 border: 1px solid rgba(255, 255, 255, 0.1);
             }
         """)
@@ -250,7 +228,7 @@ class OverlayWindow(QMainWindow):
         h_layout.addWidget(self.chat_list)
         self.root_layout.addWidget(self.history_panel)
 
-        # 2. MAIN
+        # 2. MAIN CONTENT
         self.content_container = QWidget()
         self.layout = QVBoxLayout(self.content_container)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -264,7 +242,7 @@ class OverlayWindow(QMainWindow):
         self.toolbar_layout.setSpacing(8)
 
         self.drag_handle = QLabel("✥")
-        self.drag_handle.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 16px; margin-right: 5px;")
+        self.drag_handle.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 18px;")
         self.toolbar_layout.addWidget(self.drag_handle)
 
         self.logo_label = QLabel("🦜 Parakeet")
@@ -300,9 +278,8 @@ class OverlayWindow(QMainWindow):
         self.toolbar_layout.addWidget(self.timer_label)
 
         self.status_label = QLabel("Ready")
-        self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 9px;")
-        self.toolbar_layout.addWidget(self.status_label, 1)
+        self.status_label.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 9px;")
+        self.toolbar_layout.addWidget(self.status_label)
 
         self.expand_btn = QPushButton("▼")
         self.expand_btn.setFixedSize(30, 26)
@@ -318,34 +295,49 @@ class OverlayWindow(QMainWindow):
 
         self.layout.addWidget(self.toolbar)
 
+        # CHAT AREA
         self.content_pane = QWidget()
         self.content_pane.setVisible(False)
         self.pane_layout = QVBoxLayout(self.content_pane)
-        self.pane_layout.setContentsMargins(12, 0, 12, 12)
-        
-        self.q_header = QLabel("Question:")
-        self.q_header.setStyleSheet("color: #fff; font-weight: bold; font-size: 11px;")
-        self.pane_layout.addWidget(self.q_header)
+        self.pane_layout.setContentsMargins(10, 0, 10, 10)
+        self.pane_layout.setSpacing(10)
 
-        self.question_display = QTextEdit()
-        self.question_display.setReadOnly(True)
-        self.question_display.setFixedHeight(60)
-        self.question_display.setStyleSheet("background: rgba(255,255,255,0.03); color: #ccc; border-radius: 6px; padding: 5px;")
-        self.pane_layout.addWidget(self.question_display)
+        # Scrolling Chat View
+        self.chat_view = QTextBrowser()
+        self.chat_view.setOpenExternalLinks(True)
+        self.chat_view.setStyleSheet("""
+            QTextBrowser {
+                background: transparent;
+                border: none;
+                color: #e0e0e0;
+                font-size: 12px;
+                line-height: 1.6;
+            }
+        """)
+        self.pane_layout.addWidget(self.chat_view, 1)
 
-        self.a_header = QLabel("⭐ Answer:")
-        self.a_header.setStyleSheet("color: #00ff88; font-weight: bold; font-size: 11px; margin-top: 5px;")
-        self.pane_layout.addWidget(self.a_header)
+        # Follow-up Input Box
+        self.input_container = QFrame()
+        self.input_container.setStyleSheet("background-color: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);")
+        self.input_layout = QHBoxLayout(self.input_container)
+        self.input_layout.setContentsMargins(8, 5, 8, 5)
 
-        self.response_display = QTextEdit()
-        self.response_display.setReadOnly(True)
-        self.response_display.setStyleSheet("background: transparent; color: #eee; border: none; font-size: 12px; line-height: 1.5;")
-        self.pane_layout.addWidget(self.response_display, 1)
+        self.prompt_box = QLineEdit()
+        self.prompt_box.setPlaceholderText("Ask a follow-up or type a command...")
+        self.prompt_box.setStyleSheet("background: transparent; border: none; color: white; font-size: 12px; padding: 5px;")
+        self.prompt_box.returnPressed.connect(self._send_follow_up)
+        self.input_layout.addWidget(self.prompt_box)
 
+        self.send_btn = QPushButton("➜")
+        self.send_btn.setFixedSize(28, 28)
+        self.send_btn.setStyleSheet("background: #00ff88; color: #111; border-radius: 14px; font-weight: bold; font-size: 14px;")
+        self.send_btn.clicked.connect(self._send_follow_up)
+        self.input_layout.addWidget(self.send_btn)
+
+        self.pane_layout.addWidget(self.input_container)
         self.layout.addWidget(self.content_pane)
 
     def _toggle_history(self):
-        print(f"[UI] Toggling history panel (Current: {self.history_panel.isVisible()})")
         self.history_panel.setVisible(not self.history_panel.isVisible())
         if self.history_panel.isVisible():
             self._refresh_history_list()
@@ -358,7 +350,6 @@ class OverlayWindow(QMainWindow):
             self.chat_list.addItem(item)
 
     def _toggle_expand(self):
-        print(f"[UI] Toggling expand (Current: {self._is_expanded})")
         self._is_expanded = not self._is_expanded
         target_height = self.expanded_height if self._is_expanded else self.toolbar_height
         self.setFixedHeight(target_height)
@@ -374,6 +365,19 @@ class OverlayWindow(QMainWindow):
             act = audio_menu.addAction(dev["name"])
             act.triggered.connect(lambda _, idx=dev["index"]: self.audio_mgr.set_device(idx))
 
+        model_menu = menu.addMenu("🤖 Switch AI Model")
+        models = [
+            ("Qwen 3 (Free/Legacy)", "qwen/qwen3-coder:free"),
+            ("Gemini 2.0 Flash (Reliable)", "google/gemini-2.0-flash-001"),
+            ("GPT-4o Mini (Fast)", "openai/gpt-4o-mini"),
+            ("Claude 3.5 Sonnet (Advanced)", "anthropic/claude-3.5-sonnet"),
+        ]
+        curr_model = self.config.get("openrouter_model")
+        for label, m_id in models:
+            is_curr = (m_id == curr_model)
+            act = model_menu.addAction(f"{'● ' if is_curr else '  '}{label}")
+            act.triggered.connect(lambda _, m=m_id: self._set_ai_model(m))
+
         mode_act = menu.addAction(f"Switch to {'Assessment' if self.mode == 'interview' else 'Interview'}")
         mode_act.triggered.connect(self._toggle_mode)
         
@@ -385,12 +389,17 @@ class OverlayWindow(QMainWindow):
         exit_act.triggered.connect(QApplication.instance().quit)
         menu.exec(QCursor.pos())
 
+    def _set_ai_model(self, model_id):
+        self.config["openrouter_model"] = model_id
+        save_config(self.config)
+        self.llm_client.config["openrouter_model"] = model_id
+        self.status_label.setText(f"AI: {model_id.split('/')[-1]}")
+
     def _toggle_mode(self):
         self.mode = "assessment" if self.mode == "interview" else "interview"
         self.config["app_mode"] = self.mode
         save_config(self.config)
         self.status_label.setText(f"Mode: {self.mode.capitalize()}")
-        print(f"[UI] Mode switched to: {self.mode}")
         if self.mode == "assessment":
             self.audio_mgr.stop_capture()
             self.auto_timer.start(3000)
@@ -404,29 +413,82 @@ class OverlayWindow(QMainWindow):
         if not text: return
         current_hash = hashlib.md5(text.encode()).hexdigest()
         if current_hash != self._last_hash:
-            print("[UI] Passive check found new content.")
+            print("[UI] Passive check content detected.")
             self._last_hash = current_hash
-            self._on_context_change(text)
+            self._on_context_change(text, is_capture=True)
 
-    def _on_context_change(self, text):
-        print(f"[UI] Context changed. Refreshing UI and calling LLM ({len(text)} chars)")
-        self.question_display.setPlainText(text)
-        self.response_display.clear()
-        # Automatically expand if not already expanded to show the answer is coming
+    def _append_to_chat(self, text, role="ai"):
+        """Append a message bubble to the chat display."""
+        if role == "user":
+            bubble = f"""
+            <div style="margin-top: 10px; margin-bottom: 5px;">
+                <span style="color: #888; font-size: 10px; font-weight: bold;">USER / SCREEN</span><br>
+                <div style="background-color: rgba(255,255,255,0.06); border-radius: 8px; padding: 10px; color: #ccc;">
+                    {text.replace('\n', '<br>')}
+                </div>
+            </div>
+            """
+        else:
+            bubble = f"""
+            <div style="margin-top: 10px; margin-bottom: 5px;">
+                <span style="color: #00ff88; font-size: 10px; font-weight: bold;">PARAKEET AI</span><br>
+                <div id="latest-ai-reply" style="color: #eee; padding: 5px 0;">
+                    {text}
+                </div>
+            </div>
+            """
+        self._chat_html += bubble
+        self.chat_view.setHtml(self._chat_html)
+        self.chat_view.verticalScrollBar().setValue(self.chat_view.verticalScrollBar().maximum())
+
+    def _on_context_change(self, text, is_capture=False):
+        print(f"[UI] Processing message. Expand: {not self._is_expanded}")
         if not self._is_expanded:
             self._toggle_expand()
+        
+        display_text = f"📷 Screen Capture ({len(text)} chars)" if is_capture else text
+        self._append_to_chat(display_text, role="user")
+        
+        # Start AI response
+        self._current_ai_text = ""
+        self._chat_html += f"""
+            <div style="margin-top: 10px; margin-bottom: 5px;">
+                <span style="color: #00ff88; font-size: 10px; font-weight: bold;">PARAKEET AI</span><br>
+                <div id="streaming-node" style="color: #eee; padding: 5px 0;">
+        """
         self.llm_client.generate_response(text)
 
+    def _send_follow_up(self):
+        text = self.prompt_box.text().strip()
+        if not text: return
+        self.prompt_box.clear()
+        self._on_context_change(text, is_capture=False)
+
     def _connect_signals(self):
-        print("[UI] Connecting Backend Signals...")
         self.audio_mgr.audio_chunk_ready.connect(self.transcriber.transcribe)
         self.transcriber.transcription_ready.connect(self._on_transcription)
         self.llm_client.token_received.connect(self._on_token)
+        self.llm_client.response_complete.connect(self._on_response_complete)
         self.llm_client.status_changed.connect(lambda s: self.status_label.setText(s))
         self.audio_mgr.status_changed.connect(lambda s: self.status_label.setText(s))
 
+    @pyqtSlot(str)
+    def _on_token(self, token):
+        self._current_ai_text += token
+        # Dynamic streaming update to HTML
+        # We replace the closing tags of the last bubble for a seamless stream feel
+        temp_html = self._chat_html + self._current_ai_text.replace('\n', '<br>') + "</div></div>"
+        self.chat_view.setHtml(temp_html)
+        self.chat_view.verticalScrollBar().setValue(self.chat_view.verticalScrollBar().maximum())
+
+    @pyqtSlot(str)
+    def _on_response_complete(self, full_text):
+        # Permanently commit the full response to chat buffer
+        self._chat_html += full_text.replace('\n', '<br>') + "</div></div>"
+        self.chat_view.setHtml(self._chat_html)
+        self.chat_view.verticalScrollBar().setValue(self.chat_view.verticalScrollBar().maximum())
+
     def _capture_screen(self):
-        print("[UI] Manual Screen Capture initiated.")
         self.status_label.setText("⌛ Analyzing...")
         QApplication.processEvents()
         exclude = None
@@ -436,38 +498,22 @@ class OverlayWindow(QMainWindow):
         result = screen_reader.capture_text_from_screen(exclude_id=exclude)
         text = result.get("text", "").strip()
         if text:
-            print(f"[UI] Manual Capture Success: {len(text)} chars.")
-            self._on_context_change(text)
+            self._on_context_change(text, is_capture=True)
         else:
-            print("[UI] Manual Capture found no text.")
             self.status_label.setText(f"⚠ {result.get('error','Empty')}")
 
     @pyqtSlot(str)
     def _on_transcription(self, text):
-        print(f"[UI] Transcription received: {text[:50]}...")
-        self.question_display.setPlainText(text)
-        self.response_display.clear()
-        if not self._is_expanded:
-            self._toggle_expand()
-        self.llm_client.generate_response(text)
-
-    @pyqtSlot(str)
-    def _on_token(self, token):
-        # Extremely verbose for debugging answer generation
-        # print(f"[UI] Token Displayed: {repr(token)}")
-        cursor = self.response_display.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertText(token)
-        self.response_display.ensureCursorVisible()
+        self._on_context_change(text, is_capture=False)
 
     def _new_session(self):
-        print("[UI] Starting New Session.")
         self._session_id = storage_manager.start_session()
         self._start_time = datetime.datetime.now()
         self.clock_timer.start(1000)
         self.llm_client.clear_history()
-        self.response_display.clear()
-        self.question_display.clear()
+        self._chat_html = ""
+        self.chat_view.clear()
+        self._append_to_chat("👋 Hello! I'm ready to help. Capture your screen or type a message.", role="ai")
 
     def _upload_resume(self):
         ns_window = self._find_ns_window()
@@ -477,7 +523,6 @@ class OverlayWindow(QMainWindow):
             ns_window.setLevel_(1000)
             ns_window.orderFrontRegardless()
         if path:
-            print(f"[UI] Document uploaded: {path}")
             context_manager.add_resume(path)
             self.status_label.setText("📄 Doc Loaded")
 
@@ -538,7 +583,6 @@ class OverlayWindow(QMainWindow):
         self.setCursor(Qt.CursorShape.ArrowCursor)
 
     def closeEvent(self, event):
-        print("[UI] Closing and saving config.")
         self.config["window_x"] = self.x()
         self.config["window_y"] = self.y()
         self.config["window_width"] = self.width()
