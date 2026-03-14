@@ -180,6 +180,46 @@ class OverlayWindow(QMainWindow):
         except Exception: pass
         return None
 
+    def apply_stealth(self):
+        """Apply absolute macOS stealth settings."""
+        print("[UI] Applying Native Stealth Settings...")
+        try:
+            from Cocoa import (
+                NSWindowCollectionBehaviorCanJoinAllSpaces,
+                NSWindowCollectionBehaviorStationary,
+                NSWindowCollectionBehaviorFullScreenAuxiliary,
+                NSWindowCollectionBehaviorIgnoresCycle,
+            )
+
+            ns_window = self._find_ns_window()
+
+            if ns_window:
+                # 1. Hide from Screen Capture
+                ns_window.setSharingType_(0)
+                if hasattr(ns_window, 'setExcludedFromCapture_'):
+                    ns_window.setExcludedFromCapture_(True)
+
+                # 2. Set Level 1000 (kCGScreenSaverWindowLevel)
+                ns_window.setLevel_(1000)
+                ns_window.orderFrontRegardless()
+
+                # 3. Collection Behavior (Join all spaces, Ignore cycle, etc.)
+                ns_window.setCollectionBehavior_(
+                    NSWindowCollectionBehaviorCanJoinAllSpaces
+                    | NSWindowCollectionBehaviorStationary
+                    | NSWindowCollectionBehaviorFullScreenAuxiliary
+                    | NSWindowCollectionBehaviorIgnoresCycle
+                )
+                self.status_label.setText("🛡 Stealth Active")
+                print("[UI] Stealth Applied successfully.")
+            else:
+                print("[UI] Error: Native window hook failed for stealth.")
+                self.status_label.setText("⚠ Native Hook Failed")
+
+        except Exception as e:
+            print(f"[UI] Stealth Exception: {e}")
+            self.status_label.setText(f"⚠ Stealth Error")
+
     def _build_ui(self):
         self.main_container = QWidget()
         self.main_container.setObjectName("mainContainer")
