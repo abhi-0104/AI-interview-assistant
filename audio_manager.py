@@ -25,8 +25,8 @@ class AudioManager(QObject):
         self.config = load_config()
         self.sample_rate = self.config["sample_rate"]
         self.chunk_seconds = self.config["audio_chunk_seconds"]
-        self.silence_threshold = 0.005 # More sensitive
-        self.silence_duration = 1.8 # Slightly faster flush
+        self.silence_threshold = self.config.get("silence_threshold", 0.001)
+        self.silence_duration = self.config.get("silence_duration", 1.5)
         self.max_speech_duration = 10.0 # Force flush after 10s
 
         self._stream = None
