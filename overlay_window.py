@@ -9,6 +9,7 @@ import hashlib
 import time
 import datetime
 import html
+import re
 from ctypes import c_void_p
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -16,8 +17,8 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QSplitter, QFrame, QMenu, QSizeGrip,
     QApplication, QGraphicsDropShadowEffect, QTextBrowser, QLineEdit
 )
-from PyQt6.QtCore import Qt, QPoint, pyqtSlot, QSize, QTimer, QPropertyAnimation, QEasingCurve
-from PyQt6.QtGui import QFont, QAction, QCursor, QColor, QTextCursor, QIcon
+from PyQt6.QtCore import Qt, QPoint, pyqtSlot, QSize, QTimer, QPropertyAnimation, QEasingCurve, QUrl
+from PyQt6.QtGui import QFont, QAction, QCursor, QColor, QTextCursor, QIcon, QGuiApplication
 
 from audio_manager import AudioManager
 from transcriber import Transcriber
@@ -43,6 +44,8 @@ class OverlayWindow(QMainWindow):
         self._start_time = None
         self._chat_html = "" # Store chat history for HTML rendering
         self._current_gen_id = 0
+        self._code_blocks = {}
+        self._next_code_block_id = 0
 
         self.config = load_config()
         self.mode = self.config.get("app_mode", "interview")
@@ -348,7 +351,8 @@ class OverlayWindow(QMainWindow):
 
         # Scrolling Chat View
         self.chat_view = QTextBrowser()
-        self.chat_view.setOpenExternalLinks(True)
+        self.chat_view.setOpenExternalLinks(False)
+        self.chat_view.anchorClicked.connect(self._handle_chat_link)
         self.chat_view.setStyleSheet("""
             QTextBrowser {
                 background: transparent;
@@ -528,37 +532,114 @@ class OverlayWindow(QMainWindow):
         self.chat_view.setHtml(f"<html><body style='margin:10px;'>{self._chat_html}</body></html>")
         self.chat_view.verticalScrollBar().setValue(self.chat_view.verticalScrollBar().maximum())
 
-    def _format_response(self, text):
-        """Rich formatting for AI responses with icons and structured headers."""
-        import re
-        
-        # 1. Icons for Headers
-        text = text.replace("Question:", "💬 <b>Question:</b>")
-        text = text.replace("Answer:", "⭐ <b>Answer:</b>")
-        text = text.replace("Key Steps:", "🔑 <b>Key Steps:</b>")
-        text = text.replace("Code:", "💻 <b>Code:</b>")
-        
-        # 2. Code Block Styling
-        def repl_code(match):
-            lang = match.group(1) or ""
-            code = match.group(2).strip()
-            return f'''
-            <div style="background-color: #0d0d0f; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 12px; margin: 10px 0; font-family: 'Menlo', 'Courier New', monospace; font-size: 12px; color: #d0d0d0; line-height: 1.5;">
-                <span style="color: #00ff88; font-size: 10px; font-weight: bold; text-transform: uppercase;">{lang}</span><br>
-                <div style="white-space: pre-wrap;">{code}</div>
+    def _render_inline_markdown(self, text):
+        escaped = html.escape(text)
+        escaped = re.sub(r'`([^`\n]+)`', r'<code style="background: rgba(255,255,255,0.08); border-radius: 4px; padding: 1px 4px; font-family: Menlo, monospace; color: #9fffd0;">\1</code>', escaped)
+        escaped = re.sub(r'\*\*([^*]+)\*\*', r'<b>\1</b>', escaped)
+        escaped = re.sub(r'(?<!\*)\*([^*\n]+)\*(?!\*)', r'<i>\1</i>', escaped)
+        return escaped
+
+    def _build_code_block_html(self, lang, code):
+        code_id = self._next_code_block_id
+        self._next_code_block_id += 1
+        self._code_blocks[code_id] = code
+
+        lang_label = html.escape(lang) if lang else "text"
+        escaped_code = html.escape(code)
+        return f'''
+        <div style="background-color: #0d0d0f; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; margin: 12px 0; overflow: hidden;">
+            <div style="padding: 8px 12px; background: rgba(255,255,255,0.04); border-bottom: 1px solid rgba(255,255,255,0.08);">
+                <table width="100%" cellspacing="0" cellpadding="0">
+                    <tr>
+                        <td><span style="color: #00ff88; font-size: 10px; font-weight: bold; text-transform: uppercase;">{lang_label}</span></td>
+                        <td align="right"><a href="copy://{code_id}" style="color: #9fffd0; text-decoration: none; font-size: 11px; font-weight: bold;">Copy</a></td>
+                    </tr>
+                </table>
             </div>
-            '''
-        text = re.sub(r'```(\w*)\n(.*?)\n```', repl_code, text, flags=re.DOTALL)
-        
-        # 3. List Item Beautification
-        text = text.replace("• ", "&nbsp;&nbsp;• ")
-        
-        # 4. Bold tech terms
-        text = re.sub(r'(\d+ms|\d+s|O\(.*?\))', r'<span style="color: #00ff88; font-weight: bold;">\1</span>', text)
-        
-        # Final cleanup for line breaks
-        text = text.replace("\n", "<br>")
-        return f'<div style="font-size: 13px; line-height: 1.6; color: #e0e0e0;">{text}</div>'
+            <pre style="margin: 0; padding: 12px; white-space: pre-wrap; color: #d0d0d0; font-size: 12px; line-height: 1.5; font-family: Menlo, 'Courier New', monospace;">{escaped_code}</pre>
+        </div>
+        '''
+
+    def _format_response(self, text):
+        """Render direct responses with lightweight markdown and copyable code blocks."""
+        parts = []
+        last_index = 0
+
+        for match in re.finditer(r'```(\w*)\n(.*?)\n```', text, flags=re.DOTALL):
+            prefix = text[last_index:match.start()]
+            if prefix:
+                parts.append(self._format_markdown_text(prefix))
+            parts.append(self._build_code_block_html(match.group(1), match.group(2).strip()))
+            last_index = match.end()
+
+        suffix = text[last_index:]
+        if suffix:
+            parts.append(self._format_markdown_text(suffix))
+
+        if not parts:
+            parts.append(self._format_markdown_text(text))
+
+        return f'<div style="font-size: 13px; line-height: 1.65; color: #e0e0e0;">{"".join(parts)}</div>'
+
+    def _format_markdown_text(self, text):
+        lines = text.splitlines()
+        html_parts = []
+        in_list = False
+
+        def close_list():
+            nonlocal in_list
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+
+        for raw_line in lines:
+            line = raw_line.rstrip()
+            stripped = line.strip()
+            if not stripped:
+                close_list()
+                html_parts.append("<div style='height: 8px;'></div>")
+                continue
+
+            bullet_match = re.match(r'^[-*]\s+(.*)$', stripped)
+            if bullet_match:
+                if not in_list:
+                    html_parts.append("<ul style='margin: 8px 0 8px 18px; padding: 0;'>")
+                    in_list = True
+                html_parts.append(f"<li style='margin: 4px 0;'>{self._render_inline_markdown(bullet_match.group(1))}</li>")
+                continue
+
+            close_list()
+
+            heading_match = re.match(r'^(#{1,3})\s+(.*)$', stripped)
+            if heading_match:
+                level = len(heading_match.group(1))
+                size = {1: "18px", 2: "16px", 3: "14px"}[level]
+                html_parts.append(
+                    f"<div style='margin: 10px 0 6px; font-size: {size}; font-weight: bold; color: #ffffff;'>{self._render_inline_markdown(heading_match.group(2))}</div>"
+                )
+                continue
+
+            html_parts.append(f"<div style='margin: 4px 0;'>{self._render_inline_markdown(stripped)}</div>")
+
+        close_list()
+        return "".join(html_parts)
+
+    @pyqtSlot(QUrl)
+    def _handle_chat_link(self, url):
+        if url.scheme() == "copy":
+            try:
+                code_id = int(url.path().lstrip("/"))
+            except ValueError:
+                return
+            code = self._code_blocks.get(code_id)
+            if code is not None:
+                QGuiApplication.clipboard().setText(code)
+                self.status_label.setText("Code copied")
+            return
+
+        if url.isValid():
+            from PyQt6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(url)
 
     def _on_context_change(self, text, is_capture=False):
         print(f"[UI] Processing message. Expand: {not self._is_expanded}")
