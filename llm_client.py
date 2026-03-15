@@ -79,11 +79,9 @@ RULES:
         else:
             base_prompt += """
 - MODE: Interview.
-- Format: Strictly use these headers:
-  'Question: [summary]'
-  'Answer: [direct response]'
-  'Key Steps: [short bullet points]'
-  'Code: [if applicable, wrapped in ```]'
+- Format: Respond directly to the user's question without forced section headers.
+- Markdown is allowed when it improves readability.
+- If code is useful, put it inside fenced code blocks using triple backticks.
 - Tone: Professional, grounded.
 - Length: Concise, suitable for oral delivery."""
 
