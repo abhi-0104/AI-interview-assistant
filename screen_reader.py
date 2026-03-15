@@ -105,12 +105,30 @@ def _read_via_ax(pid: int) -> Optional[str]:
 
 # ─── Tier 2: Native macOS Vision OCR (Zero-Dependency) ───────────────────────
 
-def capture_text_from_screen(exclude_id: Optional[int] = None, ax_only: bool = False) -> dict:
-    """Main extraction entry point. Supports Zero-Pixel AX and Native Vision OCR."""
-    print("\n" + "="*40)
-    print(f"[Capture] New Request (ExcludeID: {exclude_id}, AX-Only: {ax_only})")
+def capture_text_from_screen(exclude_id: Optional[int] = None, ax_only: bool = False, force_method: Optional[str] = None) -> dict:
+    """Main extraction entry point. Supports Zero-Pixel AX and Native Vision OCR.
     
-    pid = _ax_get_frontmost_pid()
+    force_method: 'accessibility' or 'vision'
+    """
+    print("\n" + "="*40)
+    print(f"[Capture] New Request (ExcludeID: {exclude_id}, AX-Only: {ax_only}, Force: {force_method})")
+    
+    # Mode-specific forced logic
+    if force_method == "vision":
+        print("[Capture] Forcing Vision OCR...")
+        return _read_via_vision(exclude_id)
+    
+    if force_method == "accessibility":
+        print("[Capture] Forcing Accessibility (AX) Extraction...")
+        pid = _ax_get_frontmost_pid()
+        if pid is not None:
+            ax_text = _read_via_ax(pid)
+            if ax_text and ax_text.strip():
+                cleaned = re.sub(r"\n{3,}", "\n\n", ax_text)
+                return {"text": cleaned.strip(), "method": "accessibility", "error": None}
+        return {"text": "", "method": "accessibility", "error": "AX extraction failed or no text found."}
+
+    # Default fallback logic
     if pid is not None:
         ax_text = _read_via_ax(pid)
         if ax_text and ax_text.strip():

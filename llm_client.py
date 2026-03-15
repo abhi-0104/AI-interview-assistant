@@ -12,9 +12,10 @@ from context_manager import build_context_string
 
 class LLMClient(QObject):
     """OpenRouter-powered LLM client for interview answer generation."""
-
-    token_received = pyqtSignal(str)
-    response_complete = pyqtSignal(str)
+    # Emitted for each streamed token (text, generation_id)
+    token_received = pyqtSignal(str, int)
+    # Emitted when full response is complete (text, generation_id)
+    response_complete = pyqtSignal(str, int)
     generation_started = pyqtSignal()
     status_changed = pyqtSignal(str)
 
@@ -26,6 +27,7 @@ class LLMClient(QObject):
         self._is_generating = False
         self._should_stop = False
         self._current_thread = None
+        self._current_gen_id = 0
 
     def initialize(self):
         """Initialize the OpenRouter client."""
@@ -76,10 +78,14 @@ RULES:
 - Keep all other answers extremely brief and focused on the solution."""
         else:
             base_prompt += """
-- MODE: Standard.
-- Give direct, confident answers.
-- For behavioral or logic questions, use the STAR methodology if applicable.
-- Reference internal documentation/background when relevant."""
+- MODE: Interview.
+- Format: Strictly use these headers:
+  'Question: [summary]'
+  'Answer: [direct response]'
+  'Key Steps: [short bullet points]'
+  'Code: [if applicable, wrapped in ```]'
+- Tone: Professional, grounded.
+- Length: Concise, suitable for oral delivery."""
 
         if context:
             base_prompt += f"\n\nCANDIDATE'S BACKGROUND:\n{context}"
@@ -103,6 +109,8 @@ RULES:
 
         self._is_generating = True
         self._should_stop = False
+        self._current_gen_id += 1
+        gen_id = self._current_gen_id
 
         # Add question to conversation history
         self._conversation_history.append({
@@ -133,11 +141,11 @@ RULES:
                     stream=True,
                 )
 
-                print("[LLM] Stream opened, waiting for tokens...")
+                print(f"[LLM] Stream opened (Gen: {gen_id}), waiting for tokens...")
                 token_count = 0
                 for chunk in stream:
-                    if self._should_stop:
-                        print("[LLM] Stop requested by user.")
+                    if self._should_stop or gen_id != self._current_gen_id:
+                        print(f"[LLM] Stop/New Gen requested. Aborting Gen {gen_id}.")
                         break
 
                     try:
@@ -145,25 +153,23 @@ RULES:
                         token = delta.content or ""
                         if token:
                             full_response += token
-                            self.token_received.emit(token)
+                            self.token_received.emit(token, gen_id)
                             token_count += 1
-                            if token_count == 1:
-                                print(f"[LLM] First token received: {repr(token)}")
                     except Exception as chunk_err:
                         print(f"[LLM] Chunk Error: {chunk_err}")
                         continue
 
-                print(f"[LLM] Stream finished. Total tokens: {token_count}")
+                print(f"[LLM] Gen {gen_id} finished. Total tokens: {token_count}")
 
-                if full_response:
+                if full_response and gen_id == self._current_gen_id:
                     self._conversation_history.append({
                         "role": "assistant",
                         "content": full_response,
                     })
-
-                self.response_complete.emit(full_response)
-                self.status_changed.emit("✅ Done")
-                print("[LLM] Final response logged to history.")
+                    self.response_complete.emit(full_response, gen_id)
+                    self.status_changed.emit("✅ Done")
+                else:
+                    print(f"[LLM] Gen {gen_id} results discarded (stale).")
 
             except Exception as e:
                 import traceback

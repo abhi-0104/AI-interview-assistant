@@ -8,6 +8,7 @@ import sys
 import hashlib
 import time
 import datetime
+import html
 from ctypes import c_void_p
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -41,6 +42,7 @@ class OverlayWindow(QMainWindow):
         self._is_expanded = False
         self._start_time = None
         self._chat_html = "" # Store chat history for HTML rendering
+        self._current_gen_id = 0
 
         self.config = load_config()
         self.mode = self.config.get("app_mode", "interview")
@@ -55,25 +57,20 @@ class OverlayWindow(QMainWindow):
         self._setup_window()
         self._setup_tray()
         self._build_ui()
-        self._connect_signals()
 
-        # Passive polling timer
+        # Timers
         self.auto_timer = QTimer(self)
         self.auto_timer.timeout.connect(self._run_passive_check)
 
-        # Level enforcer
         self._level_timer = QTimer(self)
         self._level_timer.timeout.connect(self._enforce_level)
         self._level_timer.start(1000)
 
-        # Live Timer for Toolbar
         self.clock_timer = QTimer(self)
         self.clock_timer.timeout.connect(self._update_clock)
 
-        if self.mode == "interview":
-            self.transcriber.load_model()
-        else:
-            self.auto_timer.start(3000)
+        self._update_ui_for_mode() # Now safe to call
+        self._connect_signals()
 
         self.llm_client.initialize()
         self._new_session()
@@ -203,9 +200,12 @@ class OverlayWindow(QMainWindow):
         self.main_container.setObjectName("mainContainer")
         self.main_container.setStyleSheet("""
             #mainContainer {
-                background-color: rgba(20, 20, 25, 235);
+                background-color: rgba(18, 18, 22, 245);
                 border-radius: 12px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+            }
+            * {
+                font-family: 'Inter', 'Segoe UI', 'San Francisco', sans-serif;
             }
         """)
         self.setCentralWidget(self.main_container)
@@ -224,7 +224,12 @@ class OverlayWindow(QMainWindow):
         h_title.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 9px; font-weight: bold; margin-bottom: 5px;")
         h_layout.addWidget(h_title)
         self.chat_list = QListWidget()
-        self.chat_list.setStyleSheet("background: transparent; border: none; color: #aaa; font-size: 11px;")
+        self.chat_list.setStyleSheet("""
+            QListWidget { background: transparent; border: none; color: #aaa; font-size: 11px; }
+            QListWidget::item { padding: 5px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+            QListWidget::item:selected { background: rgba(0, 255, 136, 0.1); color: #00ff88; }
+        """)
+        self.chat_list.itemClicked.connect(self._on_session_selected)
         h_layout.addWidget(self.chat_list)
         self.root_layout.addWidget(self.history_panel)
 
@@ -241,40 +246,79 @@ class OverlayWindow(QMainWindow):
         self.toolbar_layout.setContentsMargins(12, 0, 12, 0)
         self.toolbar_layout.setSpacing(8)
 
-        self.drag_handle = QLabel("✥")
-        self.drag_handle.setStyleSheet("color: rgba(255,255,255,0.4); font-size: 18px;")
-        self.toolbar_layout.addWidget(self.drag_handle)
+        self.logo_container = QWidget()
+        logo_l = QHBoxLayout(self.logo_container)
+        logo_l.setContentsMargins(0, 0, 10, 0)
+        logo_l.setSpacing(5)
 
-        self.logo_label = QLabel("🦜 Parakeet")
-        self.logo_label.setStyleSheet("color: #00ff88; font-weight: bold; font-size: 13px;")
-        self.toolbar_layout.addWidget(self.logo_label)
+        self.logo_label = QLabel("👻 Phantom Help AI")
+        self.logo_label.setStyleSheet("color: #00ff88; font-weight: bold; font-size: 14px; letter-spacing: -0.5px;")
+        
+        self.dot_label = QLabel("●") # Recording dot
+        self.dot_label.setStyleSheet("color: #ff3c3c; font-size: 10px;")
+        
+        logo_l.addWidget(self.logo_label)
+        logo_l.addWidget(self.dot_label)
+        self.toolbar_layout.addWidget(self.logo_container)
 
         btn_style = """
             QPushButton {
-                background-color: rgba(255, 255, 255, 0.08); color: white; border-radius: 6px;
-                padding: 4px 10px; font-size: 11px; border: 1px solid rgba(255, 255, 255, 0.05);
+                background-color: rgba(255, 255, 255, 0.06); color: white; border-radius: 13px;
+                padding: 4px 12px; font-size: 12px; font-weight: 500; border: 1px solid rgba(255, 255, 255, 0.05);
             }
-            QPushButton:hover { background-color: rgba(0, 255, 136, 0.15); border: 1px solid #00ff88; }
+            QPushButton:hover { background-color: rgba(0, 255, 136, 0.12); border: 1px solid #00ff88; }
+            QPushButton[active="true"] { background-color: rgba(0, 255, 136, 0.2); border: 1px solid #00ff88; color: #00ff88; }
         """
-        self.help_btn = QPushButton("AI Help ✨")
-        self.help_btn.setStyleSheet(btn_style)
-        self.help_btn.clicked.connect(self._restore_and_capture)
-        self.toolbar_layout.addWidget(self.help_btn)
 
-        self.analyze_btn = QPushButton("Analyze 🖥")
+        # MODE TOGGLE
+        self.mode_container = QFrame()
+        self.mode_container.setStyleSheet("background: rgba(255,255,255,0.05); border-radius: 8px; padding: 2px;")
+        self.mode_layout = QHBoxLayout(self.mode_container)
+        self.mode_layout.setContentsMargins(0, 0, 0, 0)
+        self.mode_layout.setSpacing(0)
+        
+        self.interview_btn = QPushButton("Interview")
+        self.interview_btn.setCheckable(True)
+        self.interview_btn.setStyleSheet(btn_style + "QPushButton { border: none; border-radius: 6px; }")
+        
+        self.assess_btn = QPushButton("Assessment")
+        self.assess_btn.setCheckable(True)
+        self.assess_btn.setStyleSheet(btn_style + "QPushButton { border: none; border-radius: 6px; }")
+        
+        self.interview_btn.clicked.connect(lambda: self._set_mode("interview"))
+        self.assess_btn.clicked.connect(lambda: self._set_mode("assessment"))
+        
+        self.mode_layout.addWidget(self.interview_btn)
+        self.mode_layout.addWidget(self.assess_btn)
+        self.toolbar_layout.addWidget(self.mode_container)
+
+        self.analyze_btn = QPushButton("Analyze Screen 🖥")
         self.analyze_btn.setStyleSheet(btn_style)
         self.analyze_btn.clicked.connect(self._capture_screen)
         self.toolbar_layout.addWidget(self.analyze_btn)
 
-        self.chat_btn = QPushButton("Chat 💬")
+        self.chat_btn = QPushButton("Chat")
         self.chat_btn.setStyleSheet(btn_style)
         self.chat_btn.clicked.connect(self._toggle_history)
         self.toolbar_layout.addWidget(self.chat_btn)
 
+        self.mic_btn = QPushButton("🎤")
+        self.mic_btn.setFixedSize(30, 30)
+        self.mic_btn.setCheckable(True)
+        self.mic_btn.setStyleSheet("""
+            QPushButton { background: rgba(0, 255, 136, 0.1); border-radius: 15px; border: 1px solid #00ff88; color: #00ff88; }
+            QPushButton:checked { background: rgba(255, 60, 60, 0.1); border: 1px solid #ff3c3c; color: #ff3c3c; }
+        """)
+        self.mic_btn.clicked.connect(self._toggle_mic)
+        self.toolbar_layout.addWidget(self.mic_btn)
+
         self.toolbar_layout.addStretch()
 
-        self.timer_label = QLabel("■ 00:00")
-        self.timer_label.setStyleSheet("background: rgba(40,40,45,255); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-family: 'Menlo', monospace;")
+        self.timer_label = QLabel("00:00")
+        self.timer_label.setStyleSheet("""
+            background: rgba(40,40,45,255); color: #fff; padding: 4px 10px; 
+            border-radius: 6px; font-size: 12px; font-family: 'Menlo', monospace; font-weight: bold;
+        """)
         self.toolbar_layout.addWidget(self.timer_label)
 
         self.status_label = QLabel("Ready")
@@ -360,17 +404,13 @@ class OverlayWindow(QMainWindow):
         menu = QMenu(self)
         menu.setStyleSheet("background: #1a1a20; color: white;")
         
-        audio_menu = menu.addMenu("🎤 Select Audio Input")
-        for dev in self.audio_mgr.get_available_devices():
-            act = audio_menu.addAction(dev["name"])
-            act.triggered.connect(lambda _, idx=dev["index"]: self.audio_mgr.set_device(idx))
-
+        # 1. Switch AI Model Submenu
         model_menu = menu.addMenu("🤖 Switch AI Model")
         models = [
-            ("Qwen 3 (Free/Legacy)", "qwen/qwen3-coder:free"),
-            ("Gemini 2.0 Flash (Reliable)", "google/gemini-2.0-flash-001"),
-            ("GPT-4o Mini (Fast)", "openai/gpt-4o-mini"),
-            ("Claude 3.5 Sonnet (Advanced)", "anthropic/claude-3.5-sonnet"),
+            ("Qwen 3 (Free)", "qwen/qwen3-coder:free"),
+            ("Gemini 2.0 Flash", "google/gemini-2.0-flash-001"),
+            ("GPT-4o Mini", "openai/gpt-4o-mini"),
+            ("Claude 3.5 Sonnet", "anthropic/claude-3-5-sonnet"),
         ]
         curr_model = self.config.get("openrouter_model")
         for label, m_id in models:
@@ -378,15 +418,28 @@ class OverlayWindow(QMainWindow):
             act = model_menu.addAction(f"{'● ' if is_curr else '  '}{label}")
             act.triggered.connect(lambda _, m=m_id: self._set_ai_model(m))
 
-        mode_act = menu.addAction(f"Switch to {'Assessment' if self.mode == 'interview' else 'Interview'}")
-        mode_act.triggered.connect(self._toggle_mode)
-        
+        # 2. Switch Audio Device Submenu
+        audio_menu = menu.addMenu("🎤 Switch Audio Device")
+        devices = self.audio_mgr.get_available_devices()
+        curr_dev = self.audio_mgr.get_device_name()
+        for dev in devices:
+            is_curr = (dev["name"] == curr_dev)
+            act = audio_menu.addAction(f"{'● ' if is_curr else '  '}{dev['name']}")
+            act.triggered.connect(lambda _, idx=dev["index"]: self._set_audio_device(idx))
+
         menu.addSeparator()
+        
+        # 3. Actions
+        menu.addAction("📂 Open History", self._toggle_history)
+        menu.addAction("🔄 New Session", self._new_session)
+        
         up_act = menu.addAction("📄 Load Document")
         up_act.triggered.connect(self._upload_resume)
         
+        menu.addSeparator()
         exit_act = menu.addAction("✕ Exit")
         exit_act.triggered.connect(QApplication.instance().quit)
+        
         menu.exec(QCursor.pos())
 
     def _set_ai_model(self, model_id):
@@ -395,17 +448,49 @@ class OverlayWindow(QMainWindow):
         self.llm_client.config["openrouter_model"] = model_id
         self.status_label.setText(f"AI: {model_id.split('/')[-1]}")
 
-    def _toggle_mode(self):
-        self.mode = "assessment" if self.mode == "interview" else "interview"
+    def _set_audio_device(self, device_index):
+        self.audio_mgr.set_device(device_index)
+        self.status_label.setText(f"Mic: {self.audio_mgr.get_device_name()[:15]}...")
+
+    def _set_mode(self, mode):
+        self.mode = mode
         self.config["app_mode"] = self.mode
         save_config(self.config)
+        self._update_ui_for_mode()
+        print(f"[UI] Mode switched to: {self.mode}")
+
+    def _update_ui_for_mode(self):
+        is_interview = (self.mode == "interview")
+        self.interview_btn.setChecked(is_interview)
+        self.interview_btn.setProperty("active", str(is_interview).lower())
+        self.assess_btn.setChecked(not is_interview)
+        self.assess_btn.setProperty("active", str(not is_interview).lower())
+        
+        # Style refresh
+        self.interview_btn.style().unpolish(self.interview_btn)
+        self.interview_btn.style().polish(self.interview_btn)
+        self.assess_btn.style().unpolish(self.assess_btn)
+        self.assess_btn.style().polish(self.assess_btn)
+        
+        self.mic_btn.setVisible(is_interview)
         self.status_label.setText(f"Mode: {self.mode.capitalize()}")
-        if self.mode == "assessment":
-            self.audio_mgr.stop_capture()
-            self.auto_timer.start(3000)
-        else:
+        
+        if is_interview:
             self.auto_timer.stop()
             self.transcriber.load_model()
+            self.audio_mgr.start_capture()
+        else:
+            self.audio_mgr.stop_capture()
+            self.auto_timer.start(3000)
+
+    def _toggle_mic(self):
+        is_muted = self.mic_btn.isChecked()
+        self.audio_mgr.set_muted(is_muted)
+        self.mic_btn.setText("🔇" if is_muted else "🎤")
+
+    def _toggle_mode(self):
+        # Backward compatibility for settings menu
+        self._set_mode("assessment" if self.mode == "interview" else "interview")
 
     def _run_passive_check(self):
         result = screen_reader.capture_text_from_screen(ax_only=True)
@@ -417,29 +502,63 @@ class OverlayWindow(QMainWindow):
             self._last_hash = current_hash
             self._on_context_change(text, is_capture=True)
 
-    def _append_to_chat(self, text, role="ai"):
+    def _append_to_chat(self, text, role="ai", persist=True):
         """Append a message bubble to the chat display."""
+        if persist and self._session_id:
+            storage_manager.add_message(self._session_id, "user" if role == "user" else "ai", text)
+
+        sanitized = html.escape(text).replace('\n', '<br>') if role == "user" else self._format_response(text)
+        
+        bubble_style = "margin: 8px 0;"
         if role == "user":
-            bubble = f"""
-            <div style="margin-top: 10px; margin-bottom: 5px;">
-                <span style="color: #888; font-size: 10px; font-weight: bold;">USER / SCREEN</span><br>
-                <div style="background-color: rgba(255,255,255,0.06); border-radius: 8px; padding: 10px; color: #ccc;">
-                    {text.replace('\n', '<br>')}
-                </div>
+            html_chunk = f'''
+            <div style="{bubble_style} text-align: left;">
+                <span style="color: rgba(255,255,255,0.4); font-size: 10px; font-weight: bold;">USER / SCREEN</span><br>
+                <div style="background-color: rgba(255,255,255,0.06); border-radius: 8px; padding: 10px; color: #ccc; font-size: 12px;">{sanitized}</div>
             </div>
-            """
+            '''
         else:
-            bubble = f"""
-            <div style="margin-top: 10px; margin-bottom: 5px;">
-                <span style="color: #00ff88; font-size: 10px; font-weight: bold;">PARAKEET AI</span><br>
-                <div id="latest-ai-reply" style="color: #eee; padding: 5px 0;">
-                    {text}
-                </div>
+            html_chunk = f'''
+            <div style="{bubble_style}">
+                {sanitized}
             </div>
-            """
-        self._chat_html += bubble
-        self.chat_view.setHtml(self._chat_html)
+            '''
+        
+        self._chat_html += html_chunk
+        self.chat_view.setHtml(f"<html><body style='margin:10px;'>{self._chat_html}</body></html>")
         self.chat_view.verticalScrollBar().setValue(self.chat_view.verticalScrollBar().maximum())
+
+    def _format_response(self, text):
+        """Rich formatting for AI responses with icons and structured headers."""
+        import re
+        
+        # 1. Icons for Headers
+        text = text.replace("Question:", "💬 <b>Question:</b>")
+        text = text.replace("Answer:", "⭐ <b>Answer:</b>")
+        text = text.replace("Key Steps:", "🔑 <b>Key Steps:</b>")
+        text = text.replace("Code:", "💻 <b>Code:</b>")
+        
+        # 2. Code Block Styling
+        def repl_code(match):
+            lang = match.group(1) or ""
+            code = match.group(2).strip()
+            return f'''
+            <div style="background-color: #0d0d0f; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 12px; margin: 10px 0; font-family: 'Menlo', 'Courier New', monospace; font-size: 12px; color: #d0d0d0; line-height: 1.5;">
+                <span style="color: #00ff88; font-size: 10px; font-weight: bold; text-transform: uppercase;">{lang}</span><br>
+                <div style="white-space: pre-wrap;">{code}</div>
+            </div>
+            '''
+        text = re.sub(r'```(\w*)\n(.*?)\n```', repl_code, text, flags=re.DOTALL)
+        
+        # 3. List Item Beautification
+        text = text.replace("• ", "&nbsp;&nbsp;• ")
+        
+        # 4. Bold tech terms
+        text = re.sub(r'(\d+ms|\d+s|O\(.*?\))', r'<span style="color: #00ff88; font-weight: bold;">\1</span>', text)
+        
+        # Final cleanup for line breaks
+        text = text.replace("\n", "<br>")
+        return f'<div style="font-size: 13px; line-height: 1.6; color: #e0e0e0;">{text}</div>'
 
     def _on_context_change(self, text, is_capture=False):
         print(f"[UI] Processing message. Expand: {not self._is_expanded}")
@@ -447,15 +566,15 @@ class OverlayWindow(QMainWindow):
             self._toggle_expand()
         
         display_text = f"📷 Screen Capture ({len(text)} chars)" if is_capture else text
-        self._append_to_chat(display_text, role="user")
+        
+        # PERSIST: For capture, we want the RAW context saved, not just the "Screen Capture" note
+        self._append_to_chat(display_text, role="user", persist=False)
+        if self._session_id:
+            storage_manager.add_message(self._session_id, "user", text)
         
         # Start AI response
         self._current_ai_text = ""
-        self._chat_html += f"""
-            <div style="margin-top: 10px; margin-bottom: 5px;">
-                <span style="color: #00ff88; font-size: 10px; font-weight: bold;">PARAKEET AI</span><br>
-                <div id="streaming-node" style="color: #eee; padding: 5px 0;">
-        """
+        self._current_gen_id += 1 # Sync generation ID
         self.llm_client.generate_response(text)
 
     def _send_follow_up(self):
@@ -467,26 +586,32 @@ class OverlayWindow(QMainWindow):
     def _connect_signals(self):
         self.audio_mgr.audio_chunk_ready.connect(self.transcriber.transcribe)
         self.transcriber.transcription_ready.connect(self._on_transcription)
+        self.transcriber.status_changed.connect(lambda s: self.status_label.setText(s))
         self.llm_client.token_received.connect(self._on_token)
         self.llm_client.response_complete.connect(self._on_response_complete)
         self.llm_client.status_changed.connect(lambda s: self.status_label.setText(s))
         self.audio_mgr.status_changed.connect(lambda s: self.status_label.setText(s))
 
-    @pyqtSlot(str)
-    def _on_token(self, token):
+    @pyqtSlot(str, int)
+    def _on_token(self, token, gen_id):
+        if gen_id != self._current_gen_id:
+            return 
+
         self._current_ai_text += token
-        # Dynamic streaming update to HTML
-        # We replace the closing tags of the last bubble for a seamless stream feel
-        temp_html = self._chat_html + self._current_ai_text.replace('\n', '<br>') + "</div></div>"
+        # For streaming, we use a simpler version of formatter
+        temp_text = self._format_response(self._current_ai_text)
+        
+        temp_html = f"<html><body style='margin:10px;'>{self._chat_html}<div style='margin-top:10px;'>{temp_text}</div></body></html>"
         self.chat_view.setHtml(temp_html)
         self.chat_view.verticalScrollBar().setValue(self.chat_view.verticalScrollBar().maximum())
 
-    @pyqtSlot(str)
-    def _on_response_complete(self, full_text):
-        # Permanently commit the full response to chat buffer
-        self._chat_html += full_text.replace('\n', '<br>') + "</div></div>"
-        self.chat_view.setHtml(self._chat_html)
-        self.chat_view.verticalScrollBar().setValue(self.chat_view.verticalScrollBar().maximum())
+    @pyqtSlot(str, int)
+    def _on_response_complete(self, full_text, gen_id):
+        if gen_id != self._current_gen_id:
+            return
+            
+        # Permanently commit the full response to chat buffer & storage
+        self._append_to_chat(full_text, role="ai", persist=True)
 
     def _capture_screen(self):
         self.status_label.setText("⌛ Analyzing...")
@@ -495,7 +620,11 @@ class OverlayWindow(QMainWindow):
         if self._ns_window:
             try: exclude = self._ns_window.windowNumber()
             except: pass
-        result = screen_reader.capture_text_from_screen(exclude_id=exclude)
+            
+        # Context-Specific Extraction Strategy
+        force = "vision" if self.mode == "interview" else "accessibility"
+        result = screen_reader.capture_text_from_screen(exclude_id=exclude, force_method=force)
+        
         text = result.get("text", "").strip()
         if text:
             self._on_context_change(text, is_capture=True)
@@ -505,6 +634,32 @@ class OverlayWindow(QMainWindow):
     @pyqtSlot(str)
     def _on_transcription(self, text):
         self._on_context_change(text, is_capture=False)
+
+    def _on_session_selected(self, item):
+        session_id = item.data(Qt.ItemDataRole.UserRole)
+        print(f"[UI] Opening session {session_id}")
+        self._session_id = session_id
+        self.llm_client.clear_history()
+        self._chat_html = ""
+        self.chat_view.clear()
+        
+        messages = storage_manager.get_session_messages(session_id)
+        for msg in messages:
+            # Reconstruct history for LLM
+            self.llm_client._conversation_history.append({
+                "role": "user" if msg["role"] == "user" else "assistant",
+                "content": msg["content"]
+            })
+            # Re-render UI bubbles
+            role = "user" if msg["role"] == "user" else "ai"
+            display_text = msg["content"]
+            if role == "user" and len(display_text) > 500: # Heuristic for captures
+                display_text = f"📷 Screen Capture ({len(display_text)} chars)"
+            self._append_to_chat(display_text, role=role, persist=False)
+        
+        self.status_label.setText(f"📂 Session {session_id} Loaded")
+        if not self._is_expanded:
+            self._toggle_expand()
 
     def _new_session(self):
         self._session_id = storage_manager.start_session()

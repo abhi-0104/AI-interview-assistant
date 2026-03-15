@@ -25,8 +25,9 @@ class AudioManager(QObject):
         self.config = load_config()
         self.sample_rate = self.config["sample_rate"]
         self.chunk_seconds = self.config["audio_chunk_seconds"]
-        self.silence_threshold = self.config["silence_threshold"]
-        self.silence_duration = self.config["silence_duration"]
+        self.silence_threshold = 0.005 # More sensitive
+        self.silence_duration = 1.8 # Slightly faster flush
+        self.max_speech_duration = 10.0 # Force flush after 10s
 
         self._stream = None
         self._is_capturing = False
@@ -34,33 +35,34 @@ class AudioManager(QObject):
         self._audio_buffer = []
         self._silence_start = None
         self._has_speech = False
-        self._lock = threading.RLock()  # RLock: reentrant — allows _audio_callback to call _flush_buffer()
+        self._speech_start_time = None
+        self._zero_count = 0
+        self._lock = threading.RLock()
         self._device_index = None
         self._device_name = "Unknown"
 
         self._find_audio_device()
 
     def _find_audio_device(self):
-        """Find BlackHole audio device, fall back to default mic."""
+        """Find audio device. Prioritize default mic for now as requested."""
         devices = sd.query_devices()
-        blackhole_idx = None
+        
+        # Priority 1: Default Input (likely Mic)
+        default_idx = sd.default.device[0]
+        if default_idx is not None and default_idx >= 0:
+            self._device_index = int(default_idx)
+            self._device_name = devices[int(default_idx)]["name"]
+            print(f"[Audio] Selected Primary Device: {self._device_name}")
+            return
 
+        # Fallback: Search for BlackHole
         for i, dev in enumerate(devices):
             name = dev["name"].lower()
             if "blackhole" in name and dev["max_input_channels"] > 0:
-                blackhole_idx = i
-                break
-
-        if blackhole_idx is not None:
-            self._device_index = blackhole_idx
-            self._device_name = devices[blackhole_idx]["name"]
-            self.status_changed.emit(f"Using: {self._device_name}")
-        else:
-            # Fall back to default input device
-            default = sd.default.device[0]
-            if default is not None and default >= 0:
-                self._device_index = int(default)
-                self._device_name = devices[int(default)]["name"]
+                self._device_index = i
+                self._device_name = dev["name"]
+                print(f"[Audio] Selected BlackHole: {self._device_name}")
+                return
             else:
                 self._device_index = None
                 self._device_name = "Default Mic"
@@ -104,6 +106,7 @@ class AudioManager(QObject):
         self._audio_buffer = []
         self._silence_start = None
         self._has_speech = False
+        self._zero_count = 0
 
         try:
             self._stream = sd.InputStream(
@@ -138,6 +141,16 @@ class AudioManager(QObject):
         self._flush_buffer()
         self.status_changed.emit("⏹ Stopped")
 
+    def set_muted(self, muted: bool):
+        """Mute/Unmute the capture. If muting, force flush the buffer."""
+        self._is_paused = muted
+        if muted:
+            print("[Audio] Muted. Force flushing buffer...")
+            self._flush_buffer()
+            self.status_changed.emit("🔇 Muted")
+        else:
+            self.status_changed.emit("🎤 Listening...")
+
     def toggle_pause(self):
         """Toggle pause/resume of audio capture."""
         if not self._is_capturing:
@@ -170,12 +183,36 @@ class AudioManager(QObject):
         with self._lock:
             # Check energy level for VAD
             energy = np.sqrt(np.mean(audio ** 2))
+            
+            # Debug: Log energy and a tiny sample of raw data
+            if time.time() % 2.0 < 0.1: # Log roughly once per 2 seconds
+                sample_snippet = [round(float(x), 4) for x in audio[:5]]
+                print(f"[Audio] Device {self._device_index} ({self._device_name})")
+                print(f"[Audio] Energy: {energy:.6f} | Data[0..5]: {sample_snippet}")
+
+            # Privacy Permission Check (macOS silently zeroes the buffer if blocked)
+            if energy == 0.0:
+                self._zero_count += 1
+                if self._zero_count == 50: # After ~5 seconds of absolute zeroes
+                    print("[Audio] CRITICAL: macOS is blocking the microphone (Energy 0.0).")
+                    self.status_changed.emit("❌ Mic Blocked or Muted in macOS")
+            else:
+                self._zero_count = 0
 
             if energy > self.silence_threshold:
                 # Speech detected
                 self._has_speech = True
+                if self._speech_start_time is None:
+                    self._speech_start_time = time.time()
+                    self.status_changed.emit("🎤 Hearing Voice...")
+                
                 self._silence_start = None
                 self._audio_buffer.append(audio)
+
+                # Force flush if speech is too long (Real-time feedback)
+                if time.time() - self._speech_start_time >= self.max_speech_duration:
+                    print(f"[Audio] Max speech reached ({self.max_speech_duration}s). Flushing.")
+                    self._flush_buffer()
             else:
                 if self._has_speech:
                     # Silence after speech
@@ -183,21 +220,19 @@ class AudioManager(QObject):
                     if self._silence_start is None:
                         self._silence_start = time.time()
                     elif time.time() - self._silence_start >= self.silence_duration:
-                        # 2-second silence detected — flush buffer
+                        # silence detected — flush buffer
                         self._flush_buffer()
 
     def _flush_buffer(self):
-        """Send accumulated audio buffer for transcription.
-        
-        Safe to call from within _audio_callback (which already holds self._lock)
-        because self._lock is an RLock (reentrant).
-        """
+        """Send accumulated audio buffer for transcription."""
         with self._lock:
             if self._audio_buffer and self._has_speech:
                 full_audio = np.concatenate(self._audio_buffer)
                 # Only emit if we have enough audio (at least 0.5 seconds)
                 if len(full_audio) > self.sample_rate * 0.5:
                     self.audio_chunk_ready.emit(full_audio)
+            
             self._audio_buffer = []
             self._silence_start = None
             self._has_speech = False
+            self._speech_start_time = None
