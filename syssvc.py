@@ -32,16 +32,13 @@ def check_api_keys(app: QApplication) -> bool:
         )
         if ok and key.strip():
             set_openrouter_api_key(key.strip())
+        else:
+            return False # User cancelled or empty
 
     if get_openrouter_api_key():
         return True
 
-    QMessageBox.warning(
-        None,
-        "Configuration Missing",
-        "System Service requires a management token to operate correctly.",
-    )
-    return True
+    return False
 
 
 def main():
@@ -50,6 +47,11 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName("System Management Service")
+
+    # Check API keys FIRST before showing anything
+    if not check_api_keys(app):
+        print("[System] API Key missing. Exiting.")
+        sys.exit(0)
 
     # 🛡 Stealth: Hide from Dock / Cmd+Tab
     try:
