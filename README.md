@@ -1,11 +1,11 @@
 # InterviewAgent
 
-InterviewAgent is a macOS desktop overlay for live technical interviews. It listens to incoming audio, transcribes questions locally with `faster-whisper`, captures visible text from the screen, and streams answer drafts from OpenRouter.
+InterviewAgent is a macOS desktop overlay for live technical interviews. It listens to incoming audio, transcribes questions with Groq-hosted `whisper-large-v3-turbo`, captures visible text from the screen, and streams answer drafts from OpenRouter.
 
 ## What It Does
 
 - Floating always-on-top PyQt overlay
-- Local speech-to-text with `faster-whisper`
+- Speech-to-text with Groq-hosted Whisper Turbo
 - Screen text capture through macOS Accessibility and OCR fallback
 - Resume and project-context upload for personalized answers
 - Local chat/session history stored in SQLite
@@ -15,7 +15,7 @@ InterviewAgent is a macOS desktop overlay for live technical interviews. It list
 
 - Python
 - PyQt6
-- `faster-whisper`
+- Groq Whisper API
 - OpenRouter
 - `sounddevice`
 - `pytesseract`
@@ -27,6 +27,7 @@ InterviewAgent is a macOS desktop overlay for live technical interviews. It list
 - Python 3.11 or newer
 - `pip`
 - OpenRouter API key
+- Groq API key
 - Optional: BlackHole 2ch for system-audio capture
 - Optional: `tesseract` for OCR fallback
 
@@ -56,6 +57,7 @@ pip install -r requirements.txt
 
 ```env
 OPENROUTER_API_KEY=your_openrouter_key_here
+GROQ_API_KEY=your_groq_key_here
 ```
 
 5. Optional but recommended system packages:
@@ -75,7 +77,7 @@ brew install tesseract
 
 For the lowest latency during an interview:
 
-- Use local `faster-whisper` transcription
+- Use Groq `whisper-large-v3-turbo` transcription
 - Install BlackHole and route meeting audio through it
 - Keep OCR as a fallback only
 - Use a stable OpenRouter model in `.env` or config
@@ -84,10 +86,11 @@ This repo is already configured around that approach.
 
 ## Environment Variables
 
-Only one variable is required:
+Two variables are required:
 
 ```env
 OPENROUTER_API_KEY=your_openrouter_key_here
+GROQ_API_KEY=your_groq_key_here
 ```
 
 Notes:
@@ -101,7 +104,7 @@ When the app opens, verify these items:
 
 - The overlay window appears on screen
 - The status bar shows the active audio input
-- The Whisper model finishes loading
+- The Groq Whisper client finishes initializing
 - OpenRouter responses stream into the answer panel
 
 If you want system-audio capture from Zoom, Meet, or Teams, complete the BlackHole setup in [setup_audio.md](/Users/Stark0104/Desktop/Coding/PROJECTS/Cheat/setup_audio.md).
@@ -167,7 +170,7 @@ If OCR is missing, the rest of the app still works.
 - `main.py` - app entry point
 - `overlay_window.py` - main overlay UI and interactions
 - `audio_manager.py` - audio capture and silence-based chunking
-- `transcriber.py` - local `faster-whisper` transcription
+- `transcriber.py` - Groq Whisper Turbo transcription
 - `screen_reader.py` - Accessibility capture and OCR fallback
 - `llm_client.py` - OpenRouter streaming client
 - `context_manager.py` - resume/project ingestion and prompt context
@@ -184,7 +187,7 @@ If OCR is missing, the rest of the app still works.
 
 ### No transcription appears
 
-- Wait for the Whisper model to finish loading
+- Wait for the Groq Whisper client to finish initializing
 - Confirm macOS microphone permissions are granted
 - If using meeting audio, make sure BlackHole is configured correctly
 
@@ -204,10 +207,10 @@ If OCR is missing, the rest of the app still works.
 - API keys are read from `.env`
 - `.env` is ignored by git
 - Uploaded documents and chat history are stored locally under `~/.interviewagent/`
-- Transcription runs locally on your machine
+- Transcription audio is sent to Groq for speech-to-text
 
 ## Notes
 
 - The current OpenRouter default model is `qwen/qwen3-coder:free`
-- The current transcription strategy is local `faster-whisper`
+- The current transcription strategy is Groq `whisper-large-v3-turbo`
 - For interview use, latency is usually dominated by silence detection plus LLM response time, not just transcription time
