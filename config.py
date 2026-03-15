@@ -1,6 +1,5 @@
 """
 Application configuration and persistent settings management.
-Stores config in ~/.interviewagent/config.json
 """
 
 import os
@@ -15,6 +14,7 @@ except ImportError:
 
 KEYRING_SERVICE = "SystemManagementService"
 OPENROUTER_KEYRING_USERNAME = "sys_token_or"
+GROQ_KEYRING_USERNAME = "sys_token_groq"
 
 # Base data directory
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -28,20 +28,24 @@ ENV_PATH = os.path.join(PROJECT_DIR, ".env")
 # Default configuration
 DEFAULTS = {
     "openrouter_api_key": "",
-    "whisper_model": "base.en",
+    "groq_api_key": "",
+    "transcription_provider": "groq",
+    "whisper_model": "whisper-large-v3-turbo",
     "window_width": 420,
     "window_height": 600,
     "window_opacity": 0.92,
     "window_x": 100,
     "window_y": 100,
     "sample_rate": 16000,
-    "audio_chunk_seconds": 10,
+    "audio_chunk_seconds": 5,
     "silence_threshold": 0.005,
-    "silence_duration": 1.5,
+    "silence_duration": 0.8,
     "openrouter_model": "qwen/qwen3-coder:free",
     "max_context_tokens": 4000,
     "app_mode": "interview",  # "interview" or "assessment"
 }
+
+GROQ_TRANSCRIPTION_MODEL = "whisper-large-v3-turbo"
 
 
 def ensure_dirs():
@@ -89,6 +93,16 @@ def load_config() -> dict:
             config.update(saved)
         except (json.JSONDecodeError, IOError):
             pass
+
+    # Migrate old local faster-whisper model names to the Groq-hosted model.
+    if config.get("transcription_provider") == "groq":
+        whisper_model = config.get("whisper_model", "")
+        legacy_models = {
+            "tiny", "tiny.en", "base", "base.en", "small", "small.en",
+            "medium", "medium.en", "large", "large-v2", "large-v3",
+        }
+        if whisper_model in legacy_models or not whisper_model:
+            config["whisper_model"] = GROQ_TRANSCRIPTION_MODEL
     return config
 
 
@@ -141,3 +155,37 @@ def get_api_key() -> str:
 def set_api_key(key: str):
     """Backward-compatible alias for storing the OpenRouter API key."""
     set_openrouter_api_key(key)
+
+
+def get_groq_api_key() -> str:
+    """Get the Groq API key."""
+    file_key = _read_env_file().get("GROQ_API_KEY", "")
+    if file_key:
+        return file_key
+
+    if _USE_KEYRING:
+        try:
+            key = keyring.get_password(KEYRING_SERVICE, GROQ_KEYRING_USERNAME)
+            if key:
+                return key
+        except Exception:
+            pass
+
+    config = load_config()
+    return config.get("groq_api_key", "")
+
+
+def set_groq_api_key(key: str):
+    """Save the Groq API key."""
+    _write_env_value("GROQ_API_KEY", key)
+
+    cfg = load_config()
+    if cfg.get("groq_api_key"):
+        cfg["groq_api_key"] = ""
+        save_config(cfg)
+
+    if _USE_KEYRING:
+        try:
+            keyring.set_password(KEYRING_SERVICE, GROQ_KEYRING_USERNAME, key)
+        except Exception:
+            pass
