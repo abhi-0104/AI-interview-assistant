@@ -35,9 +35,9 @@ DEFAULTS = {
     "window_x": 100,
     "window_y": 100,
     "sample_rate": 16000,
-    "audio_chunk_seconds": 2,
-    "silence_threshold": 0.01,
-    "silence_duration": 2.0,
+    "audio_chunk_seconds": 10,
+    "silence_threshold": 0.005,
+    "silence_duration": 1.5,
     "openrouter_model": "qwen/qwen3-coder:free",
     "max_context_tokens": 4000,
     "app_mode": "interview",  # "interview" or "assessment"
