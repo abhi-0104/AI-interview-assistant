@@ -3,7 +3,6 @@ pyobjc-framework-Cocoa
 pyobjc-framework-Quartz
 pyobjc-framework-Vision
 PyQt6
-faster-whisper
 sounddevice
 numpy
 PyPDF2
@@ -13,4 +12,5 @@ pytesseract
 Pillow
 python-dotenv
 openai
+groq
 requests
