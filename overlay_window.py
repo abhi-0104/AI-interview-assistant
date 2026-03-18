@@ -58,7 +58,6 @@ class OverlayWindow(QMainWindow):
         self.llm_client = LLMClient()
 
         self._setup_window()
-        self._setup_tray()
         self._build_ui()
 
         # Timers
