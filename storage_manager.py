@@ -134,3 +134,12 @@ def delete_session(session_id: int):
     conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
     conn.commit()
     conn.close()
+
+
+def clear_all_sessions():
+    """Delete all sessions and all messages."""
+    conn = _get_connection()
+    conn.execute("DELETE FROM messages")
+    conn.execute("DELETE FROM sessions")
+    conn.commit()
+    conn.close()
