@@ -39,10 +39,12 @@ DEFAULTS = {
     "sample_rate": 16000,
     "audio_chunk_seconds": 5,
     "silence_threshold": 0.005,
-    "silence_duration": 0.8,
+    "silence_duration": 1.5,
     "openrouter_model": "qwen/qwen3-coder:free",
     "max_context_tokens": 4000,
     "app_mode": "interview",  # "interview" or "assessment"
+    "audio_device_name": "BlackHole 2ch",
+    "max_speech_duration": 30.0,
 }
 
 GROQ_TRANSCRIPTION_MODEL = "whisper-large-v3-turbo"
