@@ -27,7 +27,7 @@ class AudioManager(QObject):
         self.chunk_seconds = self.config["audio_chunk_seconds"]
         self.silence_threshold = self.config.get("silence_threshold", 0.001)
         self.silence_duration = self.config.get("silence_duration", 1.5)
-        self.max_speech_duration = 10.0 # Force flush after 10s
+        self.max_speech_duration = self.config.get("max_speech_duration", 30.0)
 
         self._stream = None
         self._is_capturing = False
@@ -44,31 +44,41 @@ class AudioManager(QObject):
         self._find_audio_device()
 
     def _find_audio_device(self):
-        """Find audio device. Prioritize default mic for now as requested."""
+        """Find audio device. Prioritize BlackHole/configured device."""
         devices = sd.query_devices()
+        target_name = self.config.get("audio_device_name", "BlackHole 2ch").lower()
         
-        # Priority 1: Default Input (likely Mic)
+        # Priority 1: Configured Device (e.g. BlackHole)
+        for i, dev in enumerate(devices):
+            if target_name in dev["name"].lower() and dev["max_input_channels"] > 0:
+                self._device_index = i
+                self._device_name = dev["name"]
+                print(f"[Audio] Selected Target Device: {self._device_name}")
+                return
+
+        # Fallback: Default Input (likely Mic)
         default_idx = sd.default.device[0]
         if default_idx is not None and default_idx >= 0:
             self._device_index = int(default_idx)
             self._device_name = devices[int(default_idx)]["name"]
-            print(f"[Audio] Selected Primary Device: {self._device_name}")
+            print(f"[Audio] Selected Fallback Device: {self._device_name}")
             return
 
-        # Fallback: Search for BlackHole
+        # Last Resort: Any device with "blackhole" in name
         for i, dev in enumerate(devices):
             name = dev["name"].lower()
             if "blackhole" in name and dev["max_input_channels"] > 0:
                 self._device_index = i
                 self._device_name = dev["name"]
-                print(f"[Audio] Selected BlackHole: {self._device_name}")
+                print(f"[Audio] Selected BlackHole (Last Resort): {self._device_name}")
                 return
-            else:
-                self._device_index = None
-                self._device_name = "Default Mic"
-            self.status_changed.emit(
-                f"⚠ BlackHole not found. Using: {self._device_name}"
-            )
+        
+        # If still nothing
+        self._device_index = None
+        self._device_name = "None Found"
+        self.status_changed.emit(
+            f"⚠ Audio device not found. No input available."
+        )
 
     def get_device_name(self) -> str:
         """Get the name of the active audio device."""
