@@ -24,21 +24,31 @@ def _prompt_for_key(title: str, prompt: str) -> tuple[str, bool]:
 
 
 def check_api_keys(app: QApplication) -> bool:
-    """Prompt for the token if missing."""
+    """Prompt for tokens if missing."""
+    # 1. OpenRouter
     if not get_openrouter_api_key():
         key, ok = _prompt_for_key(
-            "System Token Required",
-            "Enter the management token for solution matching:",
+            "OpenRouter Token Required",
+            "Enter your OpenRouter API key for answer generation:",
         )
         if ok and key.strip():
             set_openrouter_api_key(key.strip())
         else:
-            return False # User cancelled or empty
+            return False
 
-    if get_openrouter_api_key():
-        return True
+    # 2. Groq
+    from config import get_groq_api_key, set_groq_api_key
+    if not get_groq_api_key():
+        key, ok = _prompt_for_key(
+            "Groq Token Required",
+            "Enter your Groq API key for high-speed transcription:",
+        )
+        if ok and key.strip():
+            set_groq_api_key(key.strip())
+        else:
+            return False
 
-    return False
+    return True
 
 
 def main():

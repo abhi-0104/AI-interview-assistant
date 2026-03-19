@@ -194,7 +194,7 @@ TONE: Professional, honest, and grounded in your actual current level of experie
                     status = f"❌ LLM error: {error_msg[:30]}"
                 
                 self.status_changed.emit(status)
-                self.response_complete.emit(f"[Error: {error_msg}]")
+                self.response_complete.emit(f"[Error: {error_msg}]", gen_id)
             finally:
                 self._is_generating = False
                 print("[LLM] Thread cleanup complete.\n")

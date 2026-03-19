@@ -1,20 +1,40 @@
+import sys
 import numpy as np
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QEventLoop
 from transcriber import Transcriber
 
 def test_transcode():
+    app = QApplication(sys.argv)
     print("Initializing Transcriber...")
     t = Transcriber()
     
-    print("Generating dummy audio (1 sec of silence)...")
-    # 16000 Hz, 1 second of noise
-    dummy_audio = np.random.normal(0, 0.01, 16000).astype(np.float32)
+    loop = QEventLoop()
+    result = {"text": None}
+
+    def on_ready(text):
+        print(f"Transcription Ready: '{text}'")
+        result["text"] = text
+        loop.quit()
+
+    def on_status(msg):
+        print(f"[STATUS] {msg}")
+        if "ready" in msg.lower() or "Provider ready" in msg:
+            print("Sending dummy audio...")
+            dummy_audio = np.random.normal(0, 0.1, 16000 * 2).astype(np.float32)
+            t.transcribe(dummy_audio)
+
+    t.transcription_ready.connect(on_ready)
+    t.status_changed.connect(on_status)
     
-    print("Attempting transcription...")
-    try:
-        text = t.transcribe(dummy_audio)
-        print(f"Result: '{text}'")
-    except Exception as e:
-        print(f"Error: {e}")
+    t.load_model()
+    
+    # Timeout after 10s
+    from PyQt6.QtCore import QTimer
+    QTimer.singleShot(10000, loop.quit)
+    
+    loop.exec()
+    print(f"Final Test Result: '{result['text']}'")
 
 if __name__ == "__main__":
     test_transcode()

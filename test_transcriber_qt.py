@@ -11,7 +11,7 @@ def test():
     
     def on_status(msg):
         print(f"[STATUS] {msg}")
-        if msg == "Groq Whisper ready":
+        if msg == "Groq Provider ready":
             print("[TEST] Generating audio and testing transcription...")
             # Let's write an actual sinewave that sounds like a tone, or just load real audio.
             # But the transcriber expects 16kHz float32. 

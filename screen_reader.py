@@ -118,9 +118,11 @@ def capture_text_from_screen(exclude_id: Optional[int] = None, ax_only: bool = F
         print("[Capture] Forcing Vision OCR...")
         return _read_via_vision(exclude_id)
     
+    # Get PID for AX extraction (needed for both forced AX and default fallback)
+    pid = _ax_get_frontmost_pid()
+
     if force_method == "accessibility":
         print("[Capture] Forcing Accessibility (AX) Extraction...")
-        pid = _ax_get_frontmost_pid()
         if pid is not None:
             ax_text = _read_via_ax(pid)
             if ax_text and ax_text.strip():

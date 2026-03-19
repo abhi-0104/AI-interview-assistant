@@ -6640,3 +6640,255 @@ Unknown property cursor
 [LLM] Gen 3 finished. Total tokens: 10
 [LLM] Thread cleanup complete.
 
+[UI] Initializing Chat-Enabled Overlay (Mode: interview)
+[Audio] Selected Target Device: BlackHole 2ch
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+qt.qpa.fonts: Populating font family aliases took 194 ms. Replace uses of missing font family "Inter" with one that exists to avoid this cost. 
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+[LLM] Initializing Client...
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[LLM] OpenRouter client ready.
+[LLM] History cleared.
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+Unknown property cursor
+[UI] Applying Native Stealth Settings...
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] CRITICAL: macOS is blocking the microphone (Energy 0.0).
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.007598 | Data[0..5]: [0.002, 0.0099, 0.0032, 0.0001, 0.0029]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[UI] Processing message. Expand: False
+
+[LLM] New Question Received: parameters, but you should kind of have this whole...
+[LLM] Starting background thread generation...
+[LLM] Model: google/gemini-2.0-flash-001
+[LLM] Context messages: 2
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[LLM] Stream opened (Gen: 1), waiting for tokens...
+[LLM] Gen 1 finished. Total tokens: 3
+[LLM] Thread cleanup complete.
+
+[Audio] CRITICAL: macOS is blocking the microphone (Energy 0.0).
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.000000 | Data[0..5]: [0.0, 0.0, 0.0, 0.0, 0.0]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.017274 | Data[0..5]: [0.0035, 0.003, -0.0024, -0.0105, -0.008]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.014390 | Data[0..5]: [-0.0046, -0.0068, -0.0059, 0.0015, 0.0166]
+[Audio] Device 0 (BlackHole 2ch)
+[Audio] Energy: 0.016765 | Data[0..5]: [-0.0003, -0.0027, 0.0068, -0.0014, -0.0049]
+Unknown property cursor
+[Audio] Muted. Force flushing buffer...
+[UI] Processing message. Expand: False
+
+[LLM] New Question Received: So speaking of training a model, there's many different optimization algorithms for doing so, right?...
+[LLM] Starting background thread generation...
+[LLM] Model: google/gemini-2.0-flash-001
+[LLM] Context messages: 4
+Unknown property cursor
+[LLM] Stream opened (Gen: 2), waiting for tokens...
+[LLM] Gen 2 finished. Total tokens: 10
+[LLM] Thread cleanup complete.
+
