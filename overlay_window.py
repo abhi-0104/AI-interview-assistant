@@ -87,7 +87,7 @@ class OverlayWindow(QMainWindow):
 
         self.toolbar_width = self.config.get("window_width", 750)
         self.toolbar_height = 48
-        self.expanded_height = self.config.get("window_height", 550)
+        self.expanded_height = max(self.config.get("window_height", 550), 550)
 
         self.setGeometry(
             self.config.get("window_x", 100),
@@ -98,6 +98,14 @@ class OverlayWindow(QMainWindow):
         self.setMinimumWidth(400)
         self.setMinimumHeight(self.toolbar_height)
         self.setWindowOpacity(self.config.get("window_opacity", 0.95))
+        self._apply_global_cursor()
+
+    def _apply_global_cursor(self):
+        """Recursively force all widgets to use the Arrow cursor."""
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        for w in self.findChildren(QWidget):
+            w.setCursor(Qt.CursorShape.ArrowCursor)
+            w.setMouseTracking(True)
 
     def _setup_tray(self):
         from PyQt6.QtWidgets import QSystemTrayIcon
@@ -208,9 +216,12 @@ class OverlayWindow(QMainWindow):
             }
             * {
                 font-family: 'Inter', 'Segoe UI', 'San Francisco', sans-serif;
+                cursor: arrow !important;
             }
         """)
         self.setCentralWidget(self.main_container)
+        self._apply_global_cursor()
+        self.setCursor(Qt.CursorShape.ArrowCursor)
 
         self.root_layout = QHBoxLayout(self.main_container)
         self.root_layout.setContentsMargins(0, 0, 0, 0)
@@ -227,9 +238,9 @@ class OverlayWindow(QMainWindow):
         h_layout.addWidget(h_title)
         self.chat_list = QListWidget()
         self.chat_list.setStyleSheet("""
-            QListWidget { background: transparent; border: none; color: #aaa; font-size: 11px; }
-            QListWidget::item { padding: 5px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-            QListWidget::item:selected { background: rgba(0, 255, 136, 0.1); color: #00ff88; }
+            QListWidget { background: transparent; border: none; color: #aaa; font-size: 11px; cursor: arrow; }
+            QListWidget::item { padding: 5px; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: arrow; }
+            QListWidget::item:selected { background: rgba(0, 255, 136, 0.1); color: #00ff88; cursor: arrow; }
         """)
         self.chat_list.itemClicked.connect(self._on_session_selected)
         h_layout.addWidget(self.chat_list)
@@ -359,8 +370,10 @@ class OverlayWindow(QMainWindow):
                 color: #e0e0e0;
                 font-size: 12px;
                 line-height: 1.6;
+                cursor: arrow;
             }
         """)
+        self.chat_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         self.pane_layout.addWidget(self.chat_view, 1)
 
         # Follow-up Input Box
@@ -371,7 +384,7 @@ class OverlayWindow(QMainWindow):
 
         self.prompt_box = QLineEdit()
         self.prompt_box.setPlaceholderText("Ask a follow-up or type a command...")
-        self.prompt_box.setStyleSheet("background: transparent; border: none; color: white; font-size: 12px; padding: 5px;")
+        self.prompt_box.setStyleSheet("background: transparent; border: none; color: white; font-size: 12px; padding: 5px; cursor: arrow;")
         self.prompt_box.returnPressed.connect(self._send_follow_up)
         self.input_layout.addWidget(self.prompt_box)
 
@@ -785,17 +798,9 @@ class OverlayWindow(QMainWindow):
     def mouseMoveEvent(self, event):
         try:
             pos = event.position().toPoint()
-            if not self._is_resizing:
-                edge = self._get_resize_edge(pos)
-                if edge is not None and edge != 0:
-                    ev = edge
-                    if ev & (Qt.Edge.LeftEdge.value | Qt.Edge.RightEdge.value) and ev & (Qt.Edge.TopEdge.value | Qt.Edge.BottomEdge.value):
-                        self.setCursor(Qt.CursorShape.SizeFDiagCursor if (ev & Qt.Edge.LeftEdge.value) == (ev & Qt.Edge.TopEdge.value) else Qt.CursorShape.SizeBDiagCursor)
-                    elif ev & (Qt.Edge.LeftEdge.value | Qt.Edge.RightEdge.value): self.setCursor(Qt.CursorShape.SizeHorCursor)
-                    elif ev & (Qt.Edge.TopEdge.value | Qt.Edge.BottomEdge.value): self.setCursor(Qt.CursorShape.SizeVerCursor)
-                    else: self.setCursor(Qt.CursorShape.ArrowCursor)
-                else:
-                    self.setCursor(Qt.CursorShape.ArrowCursor)
+            # 🛡 Stealth: Cursor never changes shape
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.main_container.setCursor(Qt.CursorShape.ArrowCursor)
 
             if self._is_resizing:
                 rect = self.geometry()
@@ -809,6 +814,10 @@ class OverlayWindow(QMainWindow):
             elif self._drag_pos is not None:
                 self.move(event.globalPosition().toPoint() - self._drag_pos)
                 event.accept()
+            
+            # Repaint cursor to ensure it stays an arrow
+            if not self._is_resizing and not self._drag_pos:
+                self.setCursor(Qt.CursorShape.ArrowCursor)
         except Exception: pass
 
     def mouseReleaseEvent(self, event):
@@ -821,6 +830,7 @@ class OverlayWindow(QMainWindow):
         self.config["window_x"] = self.x()
         self.config["window_y"] = self.y()
         self.config["window_width"] = self.width()
-        self.config["window_height"] = self.height()
+        if self._is_expanded:
+            self.config["window_height"] = self.height()
         save_config(self.config)
         event.accept()
