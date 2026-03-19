@@ -1,53 +1,54 @@
-# InterviewAgent
+# AI Interview Assistant
 
-InterviewAgent is a macOS desktop overlay for live technical interviews. It listens to incoming audio, transcribes questions with Groq-hosted `whisper-large-v3-turbo`, captures visible text from the screen, and streams answer drafts from OpenRouter.
+AI Interview Assistant is a macOS desktop overlay for live technical interviews and online assessments. It can listen to audio, capture on-screen text, use your uploaded resume or project files as context, and stream answer drafts in a floating PyQt window.
 
 ## What It Does
 
-- Floating always-on-top PyQt overlay
-- Speech-to-text with Groq-hosted Whisper Turbo
-- Screen text capture through macOS Accessibility and OCR fallback
-- Resume and project-context upload for personalized answers
+- Floating always-on-top overlay window
+- Live transcription with Groq Whisper
+- Screen text capture with macOS Accessibility and Vision OCR
+- OpenRouter-powered answer generation
+- Resume and code/project context upload
 - Local chat/session history stored in SQLite
-- OpenRouter-backed answer generation
 
-## Tech Stack
+## Platform Support
 
-- Python
-- PyQt6
-- Groq Whisper API
-- OpenRouter
-- `sounddevice`
-- `pytesseract`
-- SQLite
+- macOS only
+- Python 3.11 or newer recommended
+
+This project depends on PyQt6, macOS Accessibility APIs, and Apple frameworks exposed through `pyobjc`, so it is not a cross-platform app.
 
 ## Requirements
 
-- macOS
-- Python 3.11 or newer
+You need:
+
+- Python 3
 - `pip`
-- OpenRouter API key
-- Groq API key
-- Optional: BlackHole 2ch for system-audio capture
-- Optional: `tesseract` for OCR fallback
+- An OpenRouter API key
+- A Groq API key
+
+Optional but useful:
+
+- BlackHole 2ch for cleaner meeting-audio capture
+- Homebrew for installing optional macOS tools
 
 ## Quick Start
 
-1. Clone the repo and enter the project folder.
+1. Clone the repository and enter the project folder.
 
 ```bash
 git clone <your-repo-url>
-cd Cheat
+cd AI-interview-assistant
 ```
 
-2. Create a virtual environment.
+2. Create and activate a virtual environment.
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 ```
 
-3. Install Python dependencies.
+3. Install dependencies.
 
 ```bash
 pip install -r requirements.txt
@@ -60,33 +61,60 @@ OPENROUTER_API_KEY=your_openrouter_key_here
 GROQ_API_KEY=your_groq_key_here
 ```
 
-5. Optional but recommended system packages:
-
-```bash
-brew install blackhole-2ch
-brew install tesseract
-```
-
-6. Start the app.
+5. Start the app.
 
 ```bash
 ./run.sh
 ```
 
-## Fastest Working Setup
+That is the simplest supported launch path. `run.sh` creates the virtual environment if missing, installs dependencies, checks for BlackHole, and starts the app with [`syssvc.py`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/syssvc.py).
 
-For the lowest latency during an interview:
+## Manual Run
 
-- Use Groq `whisper-large-v3-turbo` transcription
-- Install BlackHole and route meeting audio through it
-- Keep OCR as a fallback only
-- Use a stable OpenRouter model in `.env` or config
+If you do not want to use the helper script:
 
-This repo is already configured around that approach.
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python syssvc.py
+```
+
+## First-Run Setup
+
+When you launch the app for the first time, check these items:
+
+- The overlay window appears
+- macOS prompts for Microphone access if you want audio capture
+- macOS prompts for Accessibility access if you want screen text capture
+- OpenRouter responses stream into the chat panel
+
+If the OpenRouter key is missing, the app prompts for it on launch. The Groq key is read from `.env`.
+
+## macOS Permissions
+
+The app may need:
+
+- Microphone permission for live audio capture
+- Accessibility permission for reading visible text from other apps
+
+Without Accessibility access, screen capture reliability drops because the app has to depend on OCR-style fallback behavior instead of direct text extraction.
+
+## Audio Setup
+
+The app works with a normal microphone, but for interview calls BlackHole usually gives cleaner input because it can capture meeting audio from system output.
+
+Install BlackHole with Homebrew:
+
+```bash
+brew install blackhole-2ch
+```
+
+After installing it, route your meeting audio through BlackHole and select `BlackHole 2ch` if needed. The app already prefers that device by default.
 
 ## Environment Variables
 
-Two variables are required:
+The project reads secrets from the local `.env` file:
 
 ```env
 OPENROUTER_API_KEY=your_openrouter_key_here
@@ -95,122 +123,85 @@ GROQ_API_KEY=your_groq_key_here
 
 Notes:
 
-- `.env` is ignored by git and stays local
+- `.env` stays local
 - Do not commit API keys
+- The app can also persist keys in macOS Keychain when set through the UI/config flow
 
-## First Run Checklist
+## Running Options
 
-When the app opens, verify these items:
-
-- The overlay window appears on screen
-- The status bar shows the active audio input
-- The Groq Whisper client finishes initializing
-- OpenRouter responses stream into the answer panel
-
-If you want system-audio capture from Zoom, Meet, or Teams, complete the BlackHole setup in [setup_audio.md](/Users/Stark0104/Desktop/Coding/PROJECTS/Cheat/setup_audio.md).
-
-## macOS Permissions
-
-Depending on how you use the app, macOS may ask for:
-
-- Microphone access
-- Accessibility access
-
-Accessibility is needed for screen text capture. If denied, the app falls back to OCR when possible.
-
-## Running the App
-
-The simplest way:
+Primary launcher:
 
 ```bash
 ./run.sh
 ```
 
-What `run.sh` does:
-
-- creates `venv` if needed
-- installs dependencies
-- checks for BlackHole
-- checks for `tesseract`
-- launches the app
-
-You can also run it manually:
+Direct Python entrypoint:
 
 ```bash
 source venv/bin/activate
-python main.py
+python syssvc.py
 ```
 
-## BlackHole Setup
+There is also a bundled macOS app at [`SystemManager.app`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/SystemManager.app), plus helper launch scripts such as [`launch_app.sh`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/launch_app.sh) and [`launcher.applescript`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/launcher.applescript). For most users, `./run.sh` is the easiest path.
 
-BlackHole is optional, but it gives the best results for interview audio because it captures the interviewer directly from system output instead of relying on room audio.
+## Where Data Is Stored
 
-Install:
+The app stores local data under:
 
-```bash
-brew install blackhole-2ch
-```
+`~/Library/Application Support/com.apple.SystemManagementService`
 
-Then follow the full setup guide in [setup_audio.md](/Users/Stark0104/Desktop/Coding/PROJECTS/Cheat/setup_audio.md).
+This includes:
 
-## OCR Setup
-
-OCR is only needed when Accessibility capture cannot read the on-screen text.
-
-Install:
-
-```bash
-brew install tesseract
-```
-
-If OCR is missing, the rest of the app still works.
+- `settings.json`
+- `data.db`
+- uploaded documents under `docs/`
 
 ## Project Structure
 
-- `main.py` - app entry point
-- `overlay_window.py` - main overlay UI and interactions
-- `audio_manager.py` - audio capture and silence-based chunking
-- `transcriber.py` - Groq Whisper Turbo transcription
-- `screen_reader.py` - Accessibility capture and OCR fallback
-- `llm_client.py` - OpenRouter streaming client
-- `context_manager.py` - resume/project ingestion and prompt context
-- `storage_manager.py` - SQLite session storage
-- `run.sh` - one-command launcher
+- [`syssvc.py`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/syssvc.py) - application entrypoint
+- [`overlay_window.py`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/overlay_window.py) - overlay UI and interaction logic
+- [`audio_manager.py`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/audio_manager.py) - audio device selection and capture
+- [`transcriber.py`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/transcriber.py) - Groq Whisper transcription
+- [`screen_reader.py`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/screen_reader.py) - Accessibility and Vision-based screen text extraction
+- [`llm_client.py`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/llm_client.py) - OpenRouter client and streaming responses
+- [`context_manager.py`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/context_manager.py) - uploaded document and project context handling
+- [`storage_manager.py`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/storage_manager.py) - SQLite session storage
+- [`run.sh`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/run.sh) - setup-and-run helper
 
 ## Troubleshooting
 
-### App opens but no answers appear
+### The app does not start
 
-- Check that `OPENROUTER_API_KEY` is set in `.env`
+- Make sure you are on macOS
+- Make sure Python 3 and `pip` are installed
+- Recreate the virtual environment and reinstall dependencies
+
+```bash
+rm -rf venv
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### The overlay opens but no AI answer appears
+
+- Check `OPENROUTER_API_KEY` in `.env`
 - Confirm the machine has internet access
-- Verify the OpenRouter model is available
+- Try again with the default model configured in the app
 
 ### No transcription appears
 
-- Wait for the Groq Whisper client to finish initializing
-- Confirm macOS microphone permissions are granted
-- If using meeting audio, make sure BlackHole is configured correctly
+- Check that `GROQ_API_KEY` is set in `.env`
+- Grant microphone permission in macOS Settings
+- If you are using meeting audio, verify the selected input device
 
 ### Screen capture does not work
 
-- Grant Accessibility permissions in macOS Settings
-- Install `tesseract` for OCR fallback
-
-### OCR is slow or inaccurate
-
-- Prefer Accessibility capture when possible
-- Keep the target window in the foreground
-- Increase text size on the source window if needed
-
-## Privacy
-
-- API keys are read from `.env`
-- `.env` is ignored by git
-- Uploaded documents and chat history are stored locally under `~/.interviewagent/`
-- Transcription audio is sent to Groq for speech-to-text
+- Grant Accessibility access in macOS Settings
+- Keep the source window visible and focused
 
 ## Notes
 
-- The current OpenRouter default model is `qwen/qwen3-coder:free`
-- The current transcription strategy is Groq `whisper-large-v3-turbo`
-- For interview use, latency is usually dominated by silence detection plus LLM response time, not just transcription time
+- Default OpenRouter model: `qwen/qwen3-coder:free`
+- Default transcription model: `whisper-large-v3-turbo`
+- The main supported workflow is launching through `./run.sh`
