@@ -157,7 +157,15 @@ source venv/bin/activate
 python syssvc.py
 ```
 
-There is also a bundled macOS app at [`SystemManager.app`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/SystemManager.app), plus helper launch scripts such as [`launch_app.sh`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/launch_app.sh) and [`launcher.applescript`](/Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/launcher.applescript). For most users, `./run.sh` is the easiest path.
+There is also a bundled macOS app at [`SystemManager.app`](file:///Users/Stark0104/Desktop/Coding/PROJECTS/AI-interview-assistant/SystemManager.app). For most users, `./run.sh` is the easiest path.
+
+## Stealth Launcher (macOS App)
+
+For a fully windowless/stealth experience, you can launch the agent by double-clicking **`SystemManager.app`** in the project root.
+
+- **How it works**: This is a macOS AppleScript applet that launches the agent in the background without opening a Terminal window.
+- **Requirement**: You must run `./run.sh` at least once before using the applet to ensure the virtual environment and dependencies are correctly initialized.
+- **Logs**: If the app fails to open, check the `.launcher.log` file in the project root for error details.
 
 ## Where Data Is Stored
 
