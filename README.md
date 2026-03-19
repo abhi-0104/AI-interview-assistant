@@ -10,6 +10,7 @@ AI Interview Assistant is a macOS desktop overlay for live technical interviews 
 - OpenRouter-powered answer generation
 - Resume and code/project context upload
 - Local chat/session history stored in SQLite
+- **Strategic Hacking**: Pre-configured system prompts for "Performance Mindset", the CLEAR framework, and the 30-second Rule.
 
 ## Platform Support
 
@@ -89,7 +90,7 @@ When you launch the app for the first time, check these items:
 - macOS prompts for Accessibility access if you want screen text capture
 - OpenRouter responses stream into the chat panel
 
-If the OpenRouter key is missing, the app prompts for it on launch. The Groq key is read from `.env`.
+If API keys are missing from `.env`, the app will interactively prompt you for them on the first launch and can store them in the macOS Keychain for security.
 
 ## macOS Permissions
 
@@ -111,6 +112,20 @@ brew install blackhole-2ch
 ```
 
 After installing it, route your meeting audio through BlackHole and select `BlackHole 2ch` if needed. The app already prefers that device by default.
+
+## Strategic Interviewing
+
+The agent is built with an "Interview Hacks" system prompt that helps you:
+- **Control the Script**: Treat questions as performances to lead the interviewer to your strengths.
+- **Plant Anchors**: Use "hooks" in your answers to spark specific follow-up questions.
+- **CLEAR Framework**: Automatically structures your stories using Context, Leadership, Execution, and Accomplishment.
+- **30-Second Rule**: Prompts for concise, high-impact responses to avoid rambling.
+
+## Advanced Audio Tuning
+
+If the agent is triggering answers too early or too late, you can adjust these in `settings.json`:
+- `silence_duration`: How long (in seconds) the agent waits for a gap in speech (Default: `1.5`).
+- `max_speech_duration`: The hard limit (in seconds) before a transcript is forced (Default: `30.0`).
 
 ## Environment Variables
 
