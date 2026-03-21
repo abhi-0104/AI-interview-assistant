@@ -423,10 +423,11 @@ class OverlayWindow(QMainWindow):
         # 1. Switch AI Model Submenu
         model_menu = menu.addMenu("🤖 Switch AI Model")
         models = [
-            ("Qwen 3 (Free)", "qwen/qwen3-coder:free"),
+            ("Gemini 3.1 Pro (Custom)", "google/gemini-3.1-pro-preview-customtools"),
+            ("GPT-5.4 Mini", "openai/gpt-5.4-mini"),
+            ("Llama 3.3 70B (Free)", "meta-llama/llama-3.3-70b-instruct:free"),
             ("Gemini 2.0 Flash", "google/gemini-2.0-flash-001"),
             ("GPT-4o Mini", "openai/gpt-4o-mini"),
-            ("Claude 3.5 Sonnet", "anthropic/claude-3-5-sonnet"),
         ]
         curr_model = self.config.get("openrouter_model")
         for label, m_id in models:

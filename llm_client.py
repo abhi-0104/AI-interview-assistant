@@ -101,6 +101,9 @@ TONE: Professional, honest, and grounded in your actual current level of experie
         else:
             base_prompt += "\n\n(Note: No resume/project context is available yet. Maintain a professional candidate persona.)"
 
+        # Final Enforcement Rule for high-end models (GPT-5/Claude 3.5)
+        base_prompt += "\n\nCRITICAL CONCISENESS RULE: Your answer MUST be concise. Respect the 30-Second Rule. Start directly in the first person. No introspection or filler."
+
         return base_prompt
 
     def generate_response(self, question: str):
@@ -144,12 +147,19 @@ TONE: Professional, honest, and grounded in your actual current level of experie
                 print(f"[LLM] Model: {model}")
                 print(f"[LLM] Context messages: {len(messages)}")
 
+                # GPT-5.4 Optimization
+                extra_params = {}
+                if "gpt-5.4" in model.lower():
+                    extra_params["reasoning"] = {"effort": "none"}
+                    extra_params["verbosity"] = "low"
+
                 stream = self._client.chat.completions.create(
                     model=model,
                     messages=messages,
                     temperature=0.3,
-                    max_tokens=2048,
+                    max_tokens=self.config.get("max_tokens_cap", 512),
                     stream=True,
+                    extra_body=extra_params if extra_params else None
                 )
 
                 print(f"[LLM] Stream opened (Gen: {gen_id}), waiting for tokens...")

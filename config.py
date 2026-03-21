@@ -42,6 +42,7 @@ DEFAULTS = {
     "silence_duration": 1.5,
     "openrouter_model": "qwen/qwen3-coder:free",
     "max_context_tokens": 4000,
+    "max_tokens_cap": 512,
     "app_mode": "interview",  # "interview" or "assessment"
     "audio_device_name": "BlackHole 2ch",
     "max_speech_duration": 30.0,
