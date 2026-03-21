@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 venv/
 .env
+.launcher.log
+data.db
+.pytest_cache/
+*.swp
+*.bak
