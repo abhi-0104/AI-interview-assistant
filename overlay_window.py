@@ -420,22 +420,7 @@ class OverlayWindow(QMainWindow):
         menu = QMenu(self)
         menu.setStyleSheet("background: #1a1a20; color: white;")
         
-        # 1. Switch AI Model Submenu
-        model_menu = menu.addMenu("🤖 Switch AI Model")
-        models = [
-            ("Gemini 3.1 Pro (Custom)", "google/gemini-3.1-pro-preview-customtools"),
-            ("GPT-5.4 Mini", "openai/gpt-5.4-mini"),
-            ("Llama 3.3 70B (Free)", "meta-llama/llama-3.3-70b-instruct:free"),
-            ("Gemini 2.0 Flash", "google/gemini-2.0-flash-001"),
-            ("GPT-4o Mini", "openai/gpt-4o-mini"),
-        ]
-        curr_model = self.config.get("openrouter_model")
-        for label, m_id in models:
-            is_curr = (m_id == curr_model)
-            act = model_menu.addAction(f"{'● ' if is_curr else '  '}{label}")
-            act.triggered.connect(lambda _, m=m_id: self._set_ai_model(m))
-
-        # 2. Switch Audio Device Submenu
+        # 1. Switch Audio Device Submenu
         audio_menu = menu.addMenu("🎤 Switch Audio Device")
         devices = self.audio_mgr.get_available_devices()
         curr_dev = self.audio_mgr.get_device_name()
@@ -458,12 +443,6 @@ class OverlayWindow(QMainWindow):
         exit_act.triggered.connect(QApplication.instance().quit)
         
         menu.exec(QCursor.pos())
-
-    def _set_ai_model(self, model_id):
-        self.config["openrouter_model"] = model_id
-        save_config(self.config)
-        self.llm_client.config["openrouter_model"] = model_id
-        self.status_label.setText(f"AI: {model_id.split('/')[-1]}")
 
     def _set_audio_device(self, device_index):
         self.audio_mgr.set_device(device_index)
