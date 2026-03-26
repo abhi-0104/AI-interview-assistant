@@ -40,10 +40,11 @@ DEFAULTS = {
     "audio_chunk_seconds": 5,
     "silence_threshold": 0.005,
     "silence_duration": 1.5,
-    "openrouter_model": "openrouter/free",
+    "openrouter_model": "openai/gpt-4o-mini",
     "max_context_tokens": 4000,
     "max_tokens_cap": 512,
     "app_mode": "interview",  # "interview" or "assessment"
+    "technical_core": ".loc, .iloc, Pandas, NumPy, DataFrame, Series, SQL, SELECT, JOIN, WHERE, GROUP BY, HAVING, Python, PyTorch, TensorFlow, Scikit-learn, MLOps, API, JSON, CRUD, REST, GraphQL, Docker, Kubernetes, AWS, GCP, Azure, Lambda, S3, EC2, RDS, Spark, Hadoop, Kafka, Redis, PostgreSQL, MySQL, MongoDB, Git, CI/CD, Unit Test, Integration Test.",
     "audio_device_name": "BlackHole 2ch",
     "max_speech_duration": 30.0,
 }

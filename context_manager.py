@@ -362,11 +362,28 @@ def build_context_string(max_chars: int = 12000) -> str:
     parts = []
     total_chars = 0
 
+    # 1. Prioritize style guides and examples (High-Priority Style Context)
+    for doc in metadata.get("documents", []):
+        filename = doc.get("filename", "").lower()
+        if "style_guide" in filename or "examples" in filename:
+            path = doc.get("path", "")
+            text = _extract_text_from_file(path)
+            if text.strip():
+                header = f"\n=== STYLE EXAMPLES: (Follow this exact conversational tone) ===\n"
+                section = header + text
+                parts.append(section)
+                total_chars += len(section)
+
+    # 2. Add other documents
     for doc in metadata.get("documents", []):
         path = doc.get("path", "")
         doc_type = doc.get("type", "")
         filename = doc.get("filename", "")
-
+        
+        # Skip if already added as style guide
+        if "style_guide" in filename.lower() or "examples" in filename.lower():
+            continue
+            
         if doc_type == "resume":
             lower_path = path.lower()
             if lower_path.endswith(".pdf"):

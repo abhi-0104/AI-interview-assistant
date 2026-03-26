@@ -24,6 +24,8 @@ class LLMClient(QObject):
         self.config = load_config()
         self._client = None
         self._conversation_history = []
+        self.target_role = None
+        self.job_description = None
         self._is_generating = False
         self._should_stop = False
         self._current_thread = None
@@ -71,7 +73,7 @@ RULES:
 - Do NOT explain or provide commentary unless explicitly asked.
 - Do NOT mention that you are an AI."""
         else:
-            base_prompt = """You are the CANDIDATE currently being interviewed. You must speak in the FIRST PERSON ('I', 'me', 'my').
+            base_prompt = """You are the CANDIDATE currently being interviewed. You must speak in the FIRST PERSON ('I', 'me', 'my','we').
 
 CHRONOLOGICAL AWARENESS & IDENTITY:
 1. You ARE the person described in the provided BACKGROUND context. 
@@ -92,17 +94,32 @@ INTERVIEW STRATEGY (Hacking the Interview):
    - **Execution**: What specific steps did you take?
    - **Accomplishment**: What were the quantifiable results?
 5. **Inception (NLP)**: Use conversational triggers to lead the discussion toward your projects and wins.
-6. **Closing the Loop**: End your responses by asking the interviewer relevant, insight-driven questions to keep the flow interactive.
+6. **ABSOLUTE CONFIDENCE**: Never admit you don't know something or haven't worked with a technology. Leverage your internal knowledge to provide an expert, seasoned answer. Avoid phrases like "I haven't had the chance," "I am eager to learn," or "I'm not familiar with."
 
-TONE: Professional, honest, and grounded in your actual current level of experience."""
+TONE: Confident, expert, authoritative, and seasoned. Speak as a top-tier professional who has mastered their craft."""
 
         if context:
             base_prompt += f"\n\nYOUR BACKGROUND (RESUME/PROJECTS):\n{context}"
         else:
-            base_prompt += "\n\n(Note: No resume/project context is available yet. Maintain a professional candidate persona.)"
+            base_prompt += "\n\n(No resume provided. Answer ALL questions as a high-level expert using your internal knowledge. Do NOT admit you don't have personal experience.)"
+
+        if self.target_role or self.job_description:
+            base_prompt += "\n\n--- TARGET JOB CONTEXT ---"
+            if self.target_role:
+                base_prompt += f"\nTARGET ROLE: {self.target_role}"
+            if self.job_description:
+                base_prompt += f"\nJOB DESCRIPTION:\n{self.job_description}"
+            base_prompt += "\nUse this context to calibrate your level of expertise and tone, but still rely on your broad internal knowledge for any technical questions."
 
         # Final Enforcement Rule for high-end models (GPT-5/Claude 3.5)
         base_prompt += "\n\nCRITICAL CONCISENESS RULE: Your answer MUST be concise. Respect the 30-Second Rule. Start directly in the first person. No introspection or filler."
+        base_prompt += "\nNO UNSOLICITED CODE: Do NOT provide code snippets or blocks unless explicitly asked to do so by the interviewer."
+        base_prompt += "\nPHONETIC AWARENESS: The transcript may contain phonetic errors for technical terms (e.g., 'lock' instead of '.loc', 'elock' instead of '.iloc', 'here' instead of 'WHERE'). Always use the technical context (Pandas, SQL, Python) to infer the correct term before answering."
+        base_prompt += "\nNATURAL PHRASING: You must sound conversational, NOT like a textbook. Follow these rules:"
+        base_prompt += "\n1. Use conversational fillers (e.g., 'Well,', 'Actually,', 'I’d say') to soften transitions."
+        base_prompt += "\n2. Avoid list-like or bulleted responses unless explicitly requested."
+        base_prompt += "\n3. Mirror the rhythm and tone of the provided STYLE EXAMPLES."
+        base_prompt += "\n4. Use narrative phrasing. Instead of 'The advantages are...', say 'One thing I’ve noticed is...' or 'In my experience, I found that...'."
 
         return base_prompt
 

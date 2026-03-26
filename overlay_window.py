@@ -420,7 +420,19 @@ class OverlayWindow(QMainWindow):
         menu = QMenu(self)
         menu.setStyleSheet("background: #1a1a20; color: white;")
         
-        # 1. Switch Audio Device Submenu
+        # 1. Switch AI Model Submenu
+        model_menu = menu.addMenu("🤖 Switch AI Model")
+        models = [
+            ("GPT-4o Mini", "openai/gpt-4o-mini"),
+            ("Gemini Flash", "google/gemini-2.0-flash-001"),
+        ]
+        curr_model = self.config.get("openrouter_model")
+        for label, m_id in models:
+            is_curr = (m_id == curr_model)
+            act = model_menu.addAction(f"{'● ' if is_curr else '  '}{label}")
+            act.triggered.connect(lambda _, m=m_id: self._set_ai_model(m))
+
+        # 2. Switch Audio Device Submenu
         audio_menu = menu.addMenu("🎤 Switch Audio Device")
         devices = self.audio_mgr.get_available_devices()
         curr_dev = self.audio_mgr.get_device_name()
@@ -437,12 +449,21 @@ class OverlayWindow(QMainWindow):
         
         up_act = menu.addAction("📄 Load Document")
         up_act.triggered.connect(self._upload_resume)
-        
+
+        jd_act = menu.addAction("💼 Set Role & JD")
+        jd_act.triggered.connect(self._set_role_and_jd)
+
         menu.addSeparator()
         exit_act = menu.addAction("✕ Exit")
         exit_act.triggered.connect(QApplication.instance().quit)
         
         menu.exec(QCursor.pos())
+
+    def _set_ai_model(self, model_id):
+        self.config["openrouter_model"] = model_id
+        save_config(self.config)
+        self.llm_client.config["openrouter_model"] = model_id
+        self.status_label.setText(f"AI: {model_id.split('/')[-1]}")
 
     def _set_audio_device(self, device_index):
         self.audio_mgr.set_device(device_index)
@@ -739,9 +760,29 @@ class OverlayWindow(QMainWindow):
         self._start_time = datetime.datetime.now()
         self.clock_timer.start(1000)
         self.llm_client.clear_history()
+        # Session-only context clear
+        self.llm_client.target_role = None
+        self.llm_client.job_description = None
+        
         self._chat_html = ""
         self.chat_view.clear()
         self._append_to_chat("👋 Hello! I'm ready to help. Capture your screen or type a message.", role="ai")
+
+    def _set_role_and_jd(self):
+        ns_window = self._find_ns_window()
+        if ns_window: ns_window.setLevel_(0)
+        
+        role, ok1 = QInputDialog.getText(self, "Candidate Specialization", "Target Job Title:", text=self.llm_client.target_role or "")
+        if ok1:
+            jd_text, ok2 = QInputDialog.getMultiLineText(self, "Candidate Specialization", "Paste Job Description (Optional):", text=self.llm_client.job_description or "")
+            if ok2:
+                self.llm_client.target_role = role
+                self.llm_client.job_description = jd_text
+                self.status_label.setText("💼 Role/JD Configured")
+        
+        if ns_window:
+            ns_window.setLevel_(1000)
+            ns_window.orderFrontRegardless()
 
     def _upload_resume(self):
         ns_window = self._find_ns_window()
@@ -763,6 +804,14 @@ class OverlayWindow(QMainWindow):
         if pos.y() < margin: edge |= Qt.Edge.TopEdge.value
         if pos.y() > rect.height() - margin: edge |= Qt.Edge.BottomEdge.value
         return edge if edge != 0 else None
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_M:
+            if not self.prompt_box.hasFocus():
+                self.mic_btn.click()
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
