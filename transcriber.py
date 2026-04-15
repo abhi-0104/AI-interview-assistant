@@ -139,7 +139,6 @@ class Transcriber(QObject):
                         language=language,
                         response_format="verbose_json",
                         temperature=0,
-                        prompt=self.config.get("technical_core", "")
                     )
                 
                 full_text = (getattr(response, "text", "") or "").strip()

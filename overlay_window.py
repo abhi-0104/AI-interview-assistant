@@ -526,24 +526,61 @@ class OverlayWindow(QMainWindow):
 
         sanitized = html.escape(text).replace('\n', '<br>') if role == "user" else self._format_response(text)
         
+        self._msg_count = getattr(self, "_msg_count", 0) + 1
+        anchor_name = f"msg_{self._msg_count}"
+
         bubble_style = "margin: 8px 0;"
         if role == "user":
             html_chunk = f'''
-            <div style="{bubble_style} text-align: left;">
-                <span style="color: rgba(255,255,255,0.4); font-size: 10px; font-weight: bold;">USER / SCREEN</span><br>
-                <div style="background-color: rgba(255,255,255,0.06); border-radius: 8px; padding: 10px; color: #ccc; font-size: 12px;">{sanitized}</div>
+            <a name="{anchor_name}"></a>
+            <div style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                <div style="{bubble_style} text-align: left;">
+                    <span style="color: rgba(255,255,255,0.4); font-size: 10px; font-weight: bold;">USER / SCREEN</span><br>
+                    <div style="background-color: rgba(255,255,255,0.06); border-radius: 8px; padding: 10px; color: #ccc; font-size: 12px;">{sanitized}</div>
+                </div>
             </div>
             '''
         else:
             html_chunk = f'''
             <div style="{bubble_style}">
+                <span style="color: #00ff88; font-size: 10px; font-weight: bold;">AI ASSISTANT</span><br>
                 {sanitized}
             </div>
             '''
         
         self._chat_html += html_chunk
+        
+        scrollbar = self.chat_view.verticalScrollBar()
+        current_val = scrollbar.value()
+
         self.chat_view.setHtml(f"<html><body style='margin:10px;'>{self._chat_html}</body></html>")
-        self.chat_view.verticalScrollBar().setValue(self.chat_view.verticalScrollBar().maximum())
+        
+        # Apply massive bottom margin so we can infinitely snap content to the top without bouncing
+        doc = self.chat_view.document()
+        frame_format = doc.rootFrame().frameFormat()
+        frame_format.setBottomMargin(800)
+        doc.rootFrame().setFrameFormat(frame_format)
+
+        if role == "user":
+            QTimer.singleShot(50, lambda: self._snap_to_latest_user_message())
+        else:
+            QTimer.singleShot(50, lambda: self.chat_view.verticalScrollBar().setValue(current_val))
+
+    def _snap_to_latest_user_message(self):
+        doc = self.chat_view.document()
+        cursor = doc.find("USER / SCREEN")
+        last_cursor = QTextCursor(cursor)
+        while not cursor.isNull():
+            last_cursor = QTextCursor(cursor)
+            cursor = doc.find("USER / SCREEN", cursor)
+            
+        if not last_cursor.isNull():
+            layout = doc.documentLayout()
+            block = last_cursor.block()
+            rect = layout.blockBoundingRect(block)
+            # Lock the exact pixel boundary to the top of the window
+            target_y = max(0, int(rect.top()) - 20)
+            self.chat_view.verticalScrollBar().setValue(target_y)
 
     def _render_inline_markdown(self, text):
         escaped = html.escape(text)
@@ -691,13 +728,17 @@ class OverlayWindow(QMainWindow):
         if gen_id != self._current_gen_id:
             return 
 
+        is_first_token = (self._current_ai_text == "")
         self._current_ai_text += token
-        # For streaming, we use a simpler version of formatter
-        temp_text = self._format_response(self._current_ai_text)
-        
-        temp_html = f"<html><body style='margin:10px;'>{self._chat_html}<div style='margin-top:10px;'>{temp_text}</div></body></html>"
-        self.chat_view.setHtml(temp_html)
-        self.chat_view.verticalScrollBar().setValue(self.chat_view.verticalScrollBar().maximum())
+
+        cursor = self.chat_view.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+
+        if is_first_token:
+            cursor.insertHtml('<div style="margin: 8px 0;"><span style="color: #00ff88; font-size: 10px; font-weight: bold;">AI ASSISTANT (GENERATING...)</span><br></div>')
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+
+        cursor.insertText(token)
 
     @pyqtSlot(str, int)
     def _on_response_complete(self, full_text, gen_id):

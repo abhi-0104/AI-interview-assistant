@@ -5,8 +5,9 @@ Enhanced with detailed logging to track signal flow and API responses.
 
 import threading
 import json
+import os
 from PyQt6.QtCore import QObject, pyqtSignal
-from config import load_config, get_openrouter_api_key
+from config import load_config, get_openrouter_api_key, DOCUMENTS_DIR
 from context_manager import build_context_string
 
 
@@ -120,6 +121,16 @@ TONE: Confident, expert, authoritative, and seasoned. Speak as a top-tier profes
         base_prompt += "\n2. Avoid list-like or bulleted responses unless explicitly requested."
         base_prompt += "\n3. Mirror the rhythm and tone of the provided STYLE EXAMPLES."
         base_prompt += "\n4. Use narrative phrasing. Instead of 'The advantages are...', say 'One thing I’ve noticed is...' or 'In my experience, I found that...'."
+        base_prompt += "\n5. NEVER GIVE LONG TEXTBOOK DEFINITIONS. Keep your responses extremely concise and punchy."
+
+        style_guide_path = os.path.join(DOCUMENTS_DIR, "style_guide.txt")
+        if os.path.exists(style_guide_path):
+            try:
+                with open(style_guide_path, "r", encoding="utf-8") as f:
+                    style_examples = f.read()
+                base_prompt += f"\n\nSTYLE EXAMPLES:\n{style_examples}"
+            except Exception as e:
+                print(f"[LLM] Error reading style_guide.txt: {e}")
 
         return base_prompt
 
@@ -173,8 +184,8 @@ TONE: Confident, expert, authoritative, and seasoned. Speak as a top-tier profes
                 stream = self._client.chat.completions.create(
                     model=model,
                     messages=messages,
-                    temperature=0.3,
-                    max_tokens=self.config.get("max_tokens_cap", 512),
+                    temperature=0.4,
+                    max_tokens=max(self.config.get("max_tokens_cap", 2048), 2048),
                     stream=True,
                     extra_body=extra_params if extra_params else None
                 )
