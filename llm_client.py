@@ -64,17 +64,7 @@ class LLMClient(QObject):
         context = build_context_string(
             max_chars=self.config.get("max_context_tokens", 4000) * 3
         )
-        mode = self.config.get("app_mode", "interview")
-
-        if mode == "assessment":
-            base_prompt = """You are a highly efficient technical assessment engine.
-RULES:
-- Handle all inputs with high precision.
-- Respond **ONLY** with the correct answer or option. 
-- Do NOT explain or provide commentary unless explicitly asked.
-- Do NOT mention that you are an AI."""
-        else:
-            base_prompt = """You are the CANDIDATE currently being interviewed. You must speak in the FIRST PERSON ('I', 'me', 'my','we').
+        base_prompt = """You are the CANDIDATE currently being interviewed. You must speak in the FIRST PERSON ('I', 'me', 'my','we').
 
 CHRONOLOGICAL AWARENESS & IDENTITY:
 1. You ARE the person described in the provided BACKGROUND context. 
@@ -95,7 +85,7 @@ INTERVIEW STRATEGY (Hacking the Interview):
    - **Execution**: What specific steps did you take?
    - **Accomplishment**: What were the quantifiable results?
 5. **Inception (NLP)**: Use conversational triggers to lead the discussion toward your projects and wins.
-6. **ABSOLUTE CONFIDENCE**: Never admit you don't know something or haven't worked with a technology. Leverage your internal knowledge to provide an expert, seasoned answer. Avoid phrases like "I haven't had the chance," "I am eager to learn," or "I'm not familiar with."
+6. **PIVOT STRATEGY**: If asked about a technology you don't know, never act defeated. Pivot the conversation to your actual strengths (e.g., 'I haven't used X in production, but I led the implementation of Y for a very similar problem.'). Use your internal knowledge to provide a seasoned answer without hallucinating fake jobs.
 
 TONE: Confident, expert, authoritative, and seasoned. Speak as a top-tier professional who has mastered their craft."""
 
@@ -161,81 +151,118 @@ TONE: Confident, expert, authoritative, and seasoned. Speak as a top-tier profes
         })
 
         def _do_generate():
-            full_response = ""
-            try:
-                print("[LLM] Starting background thread generation...")
-                self.generation_started.emit()
-                self.status_changed.emit("🧠 Generating...")
-
-                system_prompt = self._build_system_prompt()
-                messages = [{"role": "system", "content": system_prompt}]
-                messages.extend(self._conversation_history[-20:])
-
-                model = self.config.get("openrouter_model", "qwen/qwen3-coder:free")
-                print(f"[LLM] Model: {model}")
-                print(f"[LLM] Context messages: {len(messages)}")
-
-                # GPT-5.4 Optimization
-                extra_params = {}
-                if "gpt-5.4" in model.lower():
-                    extra_params["reasoning"] = {"effort": "none"}
-                    extra_params["verbosity"] = "low"
-
-                stream = self._client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=0.4,
-                    max_tokens=max(self.config.get("max_tokens_cap", 2048), 2048),
-                    stream=True,
-                    extra_body=extra_params if extra_params else None
-                )
-
-                print(f"[LLM] Stream opened (Gen: {gen_id}), waiting for tokens...")
+            fallback_models = [
+                self.config.get("openrouter_model", "qwen/qwen3-coder:free"),
+                "google/gemini-2.0-flash-lite-preview-02-05:free",
+                "meta-llama/llama-3.3-70b-instruct:free",
+                "qwen/qwen-2.5-coder-32b-instruct:free",
+                "microsoft/phi-3-medium-128k-instruct:free"
+            ]
+            
+            # Remove duplicates while preserving order
+            unique_models = []
+            for m in fallback_models:
+                if m not in unique_models:
+                    unique_models.append(m)
+                    
+            for attempt, model in enumerate(unique_models):
+                full_response = ""
                 token_count = 0
-                for chunk in stream:
-                    if self._should_stop or gen_id != self._current_gen_id:
-                        print(f"[LLM] Stop/New Gen requested. Aborting Gen {gen_id}.")
-                        break
+                try:
+                    if attempt == 0:
+                        print(f"[LLM] Starting background thread generation...")
+                        self.generation_started.emit()
+                        self.status_changed.emit("🧠 Generating...")
+                    else:
+                        print(f"[LLM] Retrying with fallback model: {model}...")
+                        self.status_changed.emit(f"🔄 Switching to {model.split('/')[-1]}...")
+                        # Small delay before fallback retry
+                        time.sleep(1)
+                        # We don't re-emit generation_started to keep the same UI bubble
+                        self.response_complete.emit("\n\n*Switching to fallback model...*\n\n", gen_id)
 
-                    try:
-                        delta = chunk.choices[0].delta
-                        token = delta.content or ""
-                        if token:
-                            full_response += token
-                            self.token_received.emit(token, gen_id)
-                            token_count += 1
-                    except Exception as chunk_err:
-                        print(f"[LLM] Chunk Error: {chunk_err}")
+                    system_prompt = self._build_system_prompt()
+                    messages = [{"role": "system", "content": system_prompt}]
+                    
+                    # Context Pruning: Keep only the last 6 messages (3 turns)
+                    messages.extend(self._conversation_history[-6:])
+
+                    print(f"[LLM] Model: {model}")
+                    print(f"[LLM] Context messages: {len(messages)}")
+
+                    # GPT-5.4 Optimization
+                    extra_params = {}
+                    if "gpt-5.4" in model.lower():
+                        extra_params["reasoning"] = {"effort": "none"}
+                        extra_params["verbosity"] = "low"
+
+                    stream = self._client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=0.4,
+                        max_tokens=self.config.get("max_tokens_cap", 512),
+                        stream=True,
+                        extra_body=extra_params if extra_params else None
+                    )
+
+                    print(f"[LLM] Stream opened (Gen: {gen_id}), waiting for tokens...")
+                    for chunk in stream:
+                        if self._should_stop or gen_id != self._current_gen_id:
+                            print(f"[LLM] Stop/New Gen requested. Aborting Gen {gen_id}.")
+                            break
+
+                        try:
+                            delta = chunk.choices[0].delta
+                            token = delta.content or ""
+                            if token:
+                                full_response += token
+                                self.token_received.emit(token, gen_id)
+                                token_count += 1
+                        except Exception as chunk_err:
+                            print(f"[LLM] Chunk Error: {chunk_err}")
+                            continue
+
+                    print(f"[LLM] Gen {gen_id} finished. Total tokens: {token_count}")
+
+                    if full_response and gen_id == self._current_gen_id:
+                        self._conversation_history.append({
+                            "role": "assistant",
+                            "content": full_response,
+                        })
+                        self.response_complete.emit(full_response, gen_id)
+                        self.status_changed.emit("✅ Done")
+                    else:
+                        print(f"[LLM] Gen {gen_id} results discarded (stale).")
+
+                    # If we succeed or stream finishes cleanly, exit the retry loop
+                    break
+
+                except Exception as e:
+                    import traceback
+                    error_msg = str(e)
+                    print(f"[LLM] Critical Generation Error with {model}: {error_msg}")
+                    
+                    is_exhausted = "429" in error_msg or "rate_limit" in error_msg.lower() or "context_length_exceeded" in error_msg.lower() or "too many tokens" in error_msg.lower()
+                    
+                    if is_exhausted and attempt < len(unique_models) - 1:
+                        # Proceed to next fallback model
                         continue
-
-                print(f"[LLM] Gen {gen_id} finished. Total tokens: {token_count}")
-
-                if full_response and gen_id == self._current_gen_id:
-                    self._conversation_history.append({
-                        "role": "assistant",
-                        "content": full_response,
-                    })
-                    self.response_complete.emit(full_response, gen_id)
-                    self.status_changed.emit("✅ Done")
-                else:
-                    print(f"[LLM] Gen {gen_id} results discarded (stale).")
-
-            except Exception as e:
-                import traceback
-                error_msg = str(e)
-                print(f"[LLM] Critical Generation Error: {error_msg}")
-                traceback.print_exc()
-                
-                if "429" in error_msg or "rate_limit" in error_msg.lower():
-                    status = "⚠ Rate Limited (Free Tier). Try again in 60s or switch model."
-                else:
-                    status = f"❌ LLM error: {error_msg[:30]}"
-                
-                self.status_changed.emit(status)
-                self.response_complete.emit(f"[Error: {error_msg}]", gen_id)
-            finally:
-                self._is_generating = False
-                print("[LLM] Thread cleanup complete.\n")
+                        
+                    # If we've exhausted fallbacks or it's a different error
+                    traceback.print_exc()
+                    if "429" in error_msg or "rate_limit" in error_msg.lower():
+                        status = "⚠ Rate Limited (Free Tier). All fallbacks failed."
+                    elif "context_length_exceeded" in error_msg.lower() or "too many tokens" in error_msg.lower():
+                        status = "⚠ Context too long. Please clear chat or capture less."
+                    else:
+                        status = f"❌ LLM error: {error_msg[:30]}"
+                    
+                    self.status_changed.emit(status)
+                    self.response_complete.emit(f"\n\n[Error: {error_msg}]", gen_id)
+                    break
+            
+            self._is_generating = False
+            print("[LLM] Thread cleanup complete.\n")
 
         self.thread = threading.Thread(target=_do_generate, daemon=True)
         self.thread.start()

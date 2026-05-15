@@ -137,18 +137,21 @@ def get_openrouter_api_key() -> str:
 
 def set_openrouter_api_key(key: str):
     """Save the OpenRouter API key."""
-    _write_env_value("OPENROUTER_API_KEY", key)
+    success = False
+    if _USE_KEYRING:
+        try:
+            keyring.set_password(KEYRING_SERVICE, OPENROUTER_KEYRING_USERNAME, key)
+            success = True
+        except Exception:
+            pass
+
+    if not success:
+        _write_env_value("OPENROUTER_API_KEY", key)
 
     cfg = load_config()
     if cfg.get("openrouter_api_key"):
         cfg["openrouter_api_key"] = ""
         save_config(cfg)
-
-    if _USE_KEYRING:
-        try:
-            keyring.set_password(KEYRING_SERVICE, OPENROUTER_KEYRING_USERNAME, key)
-        except Exception:
-            pass
 
 
 def get_api_key() -> str:
@@ -181,15 +184,18 @@ def get_groq_api_key() -> str:
 
 def set_groq_api_key(key: str):
     """Save the Groq API key."""
-    _write_env_value("GROQ_API_KEY", key)
+    success = False
+    if _USE_KEYRING:
+        try:
+            keyring.set_password(KEYRING_SERVICE, GROQ_KEYRING_USERNAME, key)
+            success = True
+        except Exception:
+            pass
+
+    if not success:
+        _write_env_value("GROQ_API_KEY", key)
 
     cfg = load_config()
     if cfg.get("groq_api_key"):
         cfg["groq_api_key"] = ""
         save_config(cfg)
-
-    if _USE_KEYRING:
-        try:
-            keyring.set_password(KEYRING_SERVICE, GROQ_KEYRING_USERNAME, key)
-        except Exception:
-            pass

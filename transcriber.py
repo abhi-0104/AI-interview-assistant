@@ -28,6 +28,7 @@ class Transcriber(QObject):
         self._client_lock = threading.Lock() # For Groq client access
         self._model_lock = threading.Lock() # For local Whisper model access
         self._loading = False
+        self._audio_queue = []
 
     def load_model(self):
         """Load the Whisper model or Groq client in a background thread."""
@@ -49,6 +50,9 @@ class Transcriber(QObject):
                             self.status_changed.emit(f"❌ Groq client init failed: {str(e)[:50]}")
                         finally:
                             self._loading = False
+                            while self._audio_queue and self._client is not None:
+                                chunk = self._audio_queue.pop(0)
+                                self._transcribe_groq(chunk)
                     thread = threading.Thread(target=_load_groq_client, daemon=True)
                     thread.start()
                 elif self._client is not None:
@@ -82,6 +86,9 @@ class Transcriber(QObject):
                 self.status_changed.emit(f"❌ Model load failed: {str(e)[:50]}")
             finally:
                 self._loading = False
+                while self._audio_queue and self._model is not None:
+                    chunk = self._audio_queue.pop(0)
+                    self._transcribe_local(chunk)
 
         thread = threading.Thread(target=_load_local_model, daemon=True)
         thread.start()
@@ -92,6 +99,11 @@ class Transcriber(QObject):
         Emits transcription_ready signal when done.
         """
         provider = self.config.get("transcription_provider", "whisper")
+
+        if self._loading:
+            self.status_changed.emit("⚠ Queuing audio (Model loading)...")
+            self._audio_queue.append(audio)
+            return
 
         if provider == "groq":
             if self._client is None:
@@ -139,6 +151,7 @@ class Transcriber(QObject):
                         language=language,
                         response_format="verbose_json",
                         temperature=0,
+                        prompt="RAG, Retrieval-Augmented Generation, LLM, SQL, API, JSON, CI/CD"
                     )
                 
                 full_text = (getattr(response, "text", "") or "").strip()
@@ -177,6 +190,7 @@ class Transcriber(QObject):
                             min_silence_duration_ms=500,
                             speech_pad_ms=200,
                         ),
+                        initial_prompt="RAG, Retrieval-Augmented Generation, LLM, SQL, API, JSON, CI/CD"
                     )
                     segments = list(segments_gen)
 
